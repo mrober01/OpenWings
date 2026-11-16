@@ -1,0 +1,584 @@
+<!doctype html>
+<!-- preview_audio.html — measurement + audition page for src/engine/Audio.js
+     Serve the repo root over http and open /tests/preview_audio.html
+       ?auto=1  run the offline measurements + live smoke test on load (used by preview_audio.mjs)
+     Otherwise: use the buttons to listen. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenWings audio preview</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; background: #10161c; color: #d8e2ea; margin: 12px; }
+  h2 { font-size: 15px; margin: 18px 0 6px; color: #8fd0ff; }
+  button { font: inherit; margin: 3px; padding: 8px 12px; background: #24323f; color: #e8f2fa; border: 1px solid #3c5266; border-radius: 6px; }
+  button:active { background: #3a6a8f; }
+  label { display: inline-block; margin: 4px 10px 4px 0; }
+  input[type=range] { vertical-align: middle; width: 160px; }
+  table { border-collapse: collapse; font: 12px ui-monospace, monospace; }
+  td, th { border: 1px solid #2c3a47; padding: 2px 6px; text-align: left; }
+  .ok { color: #7be08a; } .bad { color: #ff7a6b; font-weight: bold; }
+  #status { color: #ffd479; }
+</style>
+</head>
+<body>
+<h1 style="font-size:18px;margin:0">OpenWings procedural audio — preview</h1>
+<div id="status">tap a button to unlock audio</div>
+
+<h2>Manual flight</h2>
+<div>
+  <select id="ac"></select>
+  <button id="mStart">start flight</button><button id="mStop">stop flight</button>
+  <button id="mPause">suspend</button><button id="mResume">resume</button>
+</div>
+<div>
+  <label>throttle <input type="range" id="thr" min="0" max="1" step="0.01" value="0.2"></label>
+  <label>speed/vMax <input type="range" id="spd" min="0" max="1.1" step="0.01" value="0.3"></label>
+  <label>buffet <input type="range" id="buf" min="0" max="1" step="0.01" value="0"></label>
+  <label>airbrake <input type="range" id="brk" min="0" max="1" step="0.01" value="0"></label>
+  <label>damaged <input type="range" id="dmg" min="0" max="1" step="0.01" value="0"></label>
+  <label>volume <input type="range" id="vol" min="0" max="1" step="0.01" value="1"></label>
+</div>
+<div>
+  <label><input type="checkbox" id="ab"> afterburner</label>
+  <label><input type="checkbox" id="fire"> gun</label>
+  <label><input type="checkbox" id="cockpit"> cockpit</label>
+  <label><input type="checkbox" id="ground"> on ground (roll at speed)</label>
+  <label><input type="checkbox" id="gearm"> gear moving</label>
+  <label><input type="checkbox" id="mute"> mute</label>
+</div>
+<div>
+  <label>lock <select id="lock"><option value="0">none</option><option value="1">acquiring</option><option value="2">locked</option></select></label>
+  <label><input type="checkbox" id="stall"> stall</label>
+  <label><input type="checkbox" id="pull"> pull up</label>
+  <label><input type="checkbox" id="msl"> missile warn</label>
+</div>
+
+<h2>One-shots</h2>
+<div id="shots"></div>
+
+<h2>Scripted scenarios (live)</h2>
+<div id="scn"></div>
+
+<h2>Measurements (offline render)</h2>
+<div><button id="runTests">run measurements</button></div>
+<div id="results"></div>
+
+<script type="module">
+import { AudioEngine } from '../src/engine/Audio.js';
+
+// ---------------------------------------------------------------- fixtures
+const SPECS = {
+  ef2000: { type: 'jet', engines: 2, ab: 1.5, vMax: 430, twr: 0.82, gunRate: 0.045 },
+  a10: { type: 'jet', engines: 2, ab: 1, vMax: 195, twr: 0.38, gunRate: 0.03 },
+  spitfire: { type: 'prop', engines: 1, ab: 1, vMax: 165, twr: 0.45, gunRate: 0.05 },
+  cessna: { type: 'prop', engines: 1, ab: 1, vMax: 64, twr: 0.34, gunRate: 0.06 },
+  c130: { type: 'prop', engines: 4, ab: 1, vMax: 230, twr: 0.3, gunRate: 0.06 },
+  mi24: { type: 'heli', engines: 2, ab: 1, vMax: 88, twr: 1, gunRate: 0.05 },
+};
+const SHOT_NAMES = ['missile', 'flare', 'explosion', 'hit', 'hitmark', 'touchdown', 'gear', 'crash', 'click', 'rearm', 'warn', 'splash'];
+const st = (o) => Object.assign({
+  thrEff: 0.1, ab: false, speed: 0, vMax: 430, gForce: 1, buffet: 0, onGround: false, groundSpeed: 0, airbrake: 0,
+  gearMoving: false, firing: false, gunRate: 0.045, lock: 0, missileWarn: false, stall: false, pullUp: false, cockpit: false, damaged: 0,
+}, o);
+const f4 = (x) => (x < 0.001 && x > 0 ? x.toExponential(1) : x.toFixed(4));
+
+// ---------------------------------------------------------------- scenarios
+// { dur, events: [{t, fn(engine, bag)}], state(t) -> s, checks(m) -> [[label, pass, detail]] }
+const SC = {};
+
+SC['jet idle>dry>AB'] = {
+  dur: 7.4,
+  events: [{ t: 0, fn: e => e.startFlight(SPECS.ef2000) }, { t: 6, fn: e => e.stopFlight() }],
+  state: t => st(t < 2 ? { thrEff: 0.05, onGround: true } : t < 4 ? { thrEff: 1 } : { thrEff: 1, ab: true }),
+  checks(m) {
+    const idle = m.rms(1, 2), dry = m.rms(3, 4), ab = m.rms(5, 6);
+    return [
+      ['idle audible', idle > 0.004, `rms idle ${f4(idle)}`],
+      ['dry > idle', dry > idle * 1.5, `dry ${f4(dry)} vs idle ${f4(idle)}`],
+      ['AB > dry', ab > dry * 1.1, `ab ${f4(ab)} vs dry ${f4(dry)}`],
+      ['start no click', m.delta(0, 0.1) <= m.delta(1, 2) * 1.2 + 0.003, `d ${f4(m.delta(0, 0.1))} vs steady ${f4(m.delta(1, 2))}`],
+      ['AB light-up peak', m.peak(4, 4.7) < 0.95, `peak ${f4(m.peak(4, 4.7))}`],
+      ['stop no click', m.delta(6, 6.25) <= m.delta(5.4, 6) * 1.25 + 0.003, `d ${f4(m.delta(6, 6.25))} vs steady ${f4(m.delta(5.4, 6))}`],
+      ['silent after stopFlight', m.rms(6.9, 7.4) < 1e-4, `rms ${f4(m.rms(6.9, 7.4))}`],
+    ];
+  },
+};
+
+for (const id of Object.keys(SPECS)) {
+  SC[`throttle sweep ${id}`] = {
+    dur: 7.6,
+    events: [{ t: 0, fn: e => e.startFlight(SPECS[id]) }, { t: 6.5, fn: e => e.stopFlight() }],
+    state: t => st({ thrEff: Math.min(1, Math.floor(t / 1.3) * 0.25), vMax: SPECS[id].vMax }),
+    checks(m) {
+      const r = [0, 1, 2, 3, 4].map(i => m.rms(i * 1.3 + 0.65, i * 1.3 + 1.3));
+      const rising = r.every((v, i) => i === 0 || v > r[i - 1] * 1.02);
+      const out = [
+        ['audible at idle', r[0] > 0.004, `rms ${f4(r[0])}`],
+        ['loudness rises with thrEff', rising, r.map(f4).join(' < ')],
+        ['stop no click', m.delta(6.5, 6.75) <= m.delta(5.9, 6.5) * 1.25 + 0.003, `d ${f4(m.delta(6.5, 6.75))} vs ${f4(m.delta(5.9, 6.5))}`],
+        ['silent after stopFlight', m.rms(7.3, 7.6) < 1e-4, `rms ${f4(m.rms(7.3, 7.6))}`],
+      ];
+      if (id === 'mi24') {
+        const p = m.period(5.4, 6.4);
+        out.push(['blade slap ~20 Hz', Math.abs(1 / p - 20) < 1.5, `${(1 / p).toFixed(1)} Hz`]);
+      }
+      if (id === 'spitfire') {
+        const a = m.tone(90, 5.6, 6.4), b = m.tone(57, 5.6, 6.4);
+        out.push(['blade-pass tone at 90 Hz', a > b * 3, `90 Hz ${f4(a)} vs off-tone ${f4(b)}`]);
+      }
+      return out;
+    },
+  };
+}
+
+SC['airframe: wind/cockpit/buffet/ground/gear'] = {
+  dur: 14,
+  events: [{ t: 0, fn: e => e.startFlight(SPECS.ef2000) }, { t: 13, fn: e => e.stopFlight() }],
+  state: t => st(
+    t < 1.5 ? { thrEff: 0.2 } : t < 3 ? { thrEff: 0.2, speed: 215 } : t < 4.5 ? { thrEff: 0.2, speed: 430 } :
+    t < 6 ? { thrEff: 0.2, speed: 430, cockpit: true } : t < 7.5 ? { thrEff: 0.2, speed: 130 } :
+    t < 9 ? { thrEff: 0.2, speed: 130, buffet: 1 } : t < 10.5 ? { thrEff: 0.2, onGround: true } :
+    t < 12 ? { thrEff: 0.2, onGround: true, groundSpeed: 60, speed: 60 } : { thrEff: 0.2, onGround: true, gearMoving: true }),
+  checks(m) {
+    const w0 = m.rms(0.8, 1.5), w50 = m.rms(2.3, 3), w100 = m.rms(3.8, 4.5), ck = m.rms(5.3, 6);
+    const nb = m.rms(6.8, 7.5), bf = m.rms(8.0, 9), still = m.rms(9.8, 10.5), roll = m.rms(11.3, 12);
+    const g0 = m.tone(205, 9.8, 10.5), g1 = m.tone(205, 12.3, 13);
+    return [
+      ['wind rises with speed', w0 < w50 && w50 < w100 && w100 > w0 * 1.5, [w0, w50, w100].map(f4).join(' < ')],
+      ['cockpit view quieter', ck < w100 * 0.8, `in ${f4(ck)} vs out ${f4(w100)}`],
+      ['cockpit view duller', m.zcr(5.3, 6) < m.zcr(3.8, 4.5) * 0.7, `zcr in ${m.zcr(5.3, 6).toFixed(0)} vs out ${m.zcr(3.8, 4.5).toFixed(0)} /s`],
+      ['buffet adds rumble', bf > nb * 1.2, `${f4(bf)} vs ${f4(nb)}`],
+      ['ground roll audible', roll > still * 1.2, `${f4(roll)} vs ${f4(still)}`],
+      ['gear motor hum', g1 > g0 * 3, `205 Hz ${f4(g1)} vs ${f4(g0)}`],
+      ['silent after stopFlight', m.rms(13.7, 14) < 1e-4, `rms ${f4(m.rms(13.7, 14))}`],
+    ];
+  },
+};
+
+for (const [id, rate] of [['ef2000', 0.045], ['a10', 0.03]]) {
+  SC[`gun ${rate}s (${id})`] = {
+    dur: 5,
+    events: [{ t: 0, fn: e => e.startFlight(SPECS[id]) }, { t: 4.4, fn: e => e.stopFlight() }],
+    state: t => st({ thrEff: 0.3, speed: SPECS[id].vMax * 0.4, vMax: SPECS[id].vMax, gunRate: rate, firing: (t >= 1.5 && t < 2.5) || (t >= 3.5 && t < 3.8) }),
+    checks(m) {
+      const base = m.rms(0.8, 1.45), fire = m.rms(1.6, 2.5), p = m.period(1.6, 2.5);
+      const after = m.rms(2.56, 2.61), later = m.rms(2.7, 3.4);
+      return [
+        ['gun audible over engine', fire > base * 1.5, `fire ${f4(fire)} vs base ${f4(base)}`],
+        ['pulse rate matches gunRate', Math.abs(p - rate) < 0.002, `period ${(p * 1000).toFixed(1)} ms (want ${rate * 1000})`],
+        ['stops within ~40 ms of release', after < base * 1.35, `rms@+40..90ms ${f4(after)} vs base ${f4(base)}`],
+        ['stays stopped', later < base * 1.2 && later > base * 0.8, `${f4(later)} vs base ${f4(base)}`],
+        ['release no click', m.delta(2.5, 2.62) <= m.delta(1.6, 2.5) * 1.1 + 0.003, `d ${f4(m.delta(2.5, 2.62))} vs firing ${f4(m.delta(1.6, 2.5))}`],
+        ['second (short) burst fires', m.rms(3.56, 3.8) > base * 1.5, `rms ${f4(m.rms(3.56, 3.8))}`],
+        ['silent after stopFlight', m.rms(4.8, 5) < 1e-4, `rms ${f4(m.rms(4.8, 5))}`],
+      ];
+    },
+  };
+}
+
+{
+  // [name, on, off, flags, probe Hz]
+  const W = [
+    ['lock acquiring', 1, 3, { lock: 1 }, 1150],
+    ['locked', 3.5, 4.5, { lock: 2 }, 1520],
+    ['stall', 5, 6, { stall: true }, 430],
+    ['pull up', 6.5, 7.5, { pullUp: true }, 0],
+    ['missile', 8, 9, { missileWarn: true }, 0],
+  ];
+  SC['warning tones'] = {
+    dur: 13,
+    events: [
+      { t: 0, fn: e => e.startFlight(SPECS.ef2000) },
+      { t: 9.9, fn: (e, bag) => { bag.all = e.flight.warnCur; } },
+      { t: 10.9, fn: (e, bag) => { bag.noMsl = e.flight.warnCur; } },
+      { t: 11.45, fn: (e, bag) => { bag.lockOnly = e.flight.warnCur; } },
+      { t: 11.9, fn: (e, bag) => { bag.none = e.flight.warnCur; } },
+      { t: 12.2, fn: e => e.stopFlight() },
+    ],
+    state(t) {
+      const s = st({ thrEff: 0.1, speed: 100 });
+      for (const [, on, off, flags] of W) if (t >= on && t < off) Object.assign(s, flags);
+      if (t >= 9.5 && t < 10.5) Object.assign(s, { lock: 2, stall: true, pullUp: true, missileWarn: true });
+      else if (t >= 10.5 && t < 11) Object.assign(s, { lock: 2, stall: true, pullUp: true });
+      else if (t >= 11 && t < 11.25) Object.assign(s, { lock: 2, stall: true });
+      else if (t >= 11.25 && t < 11.5) Object.assign(s, { lock: 2 });
+      return s;
+    },
+    checks(m) {
+      const base = m.rms(0.4, 0.95), steady = m.delta(0.4, 0.95);
+      const out = [];
+      for (const [name, on, off, , hz] of W) {
+        const r = m.rms(on + 0.15, off), gap = m.rms(off + 0.15, off + 0.45);
+        out.push([`${name}: audible`, r > base * 1.25, `rms ${f4(r)} vs base ${f4(base)}`]);
+        out.push([`${name}: stops`, gap < base * 1.15, `gap rms ${f4(gap)}`]);
+        if (hz) out.push([`${name}: tone at ${hz} Hz`, m.tone(hz, on + 0.15, off) > m.tone(hz, 0.4, 0.95) * 4, `${f4(m.tone(hz, on + 0.15, off))} vs ${f4(m.tone(hz, 0.4, 0.95))}`]);
+        const mid = m.delta(on + 0.2, off - 0.05);
+        const dOn = m.delta(on - 0.02, on + 0.15), dOff = m.delta(off - 0.02, off + 0.15);
+        out.push([`${name}: no click on/off`, dOn <= mid * 1.3 + 0.004 && dOff <= mid * 1.3 + 0.004, `on ${f4(dOn)} off ${f4(dOff)} steady ${f4(mid)} (engine only ${f4(steady)})`]);
+      }
+      // lock-acquire beeps: tone present roughly half the time
+      let onN = 0, n = 0;
+      const ref = m.tone(1150, 3.6, 4.4) * 3 + 0.004;
+      for (let t = 1.2; t < 2.95; t += 0.02) { n++; if (m.tone(1150, t, t + 0.02) > ref) onN++; }
+      out.push(['lock acquiring: beeps (duty 30-70%)', onN / n > 0.3 && onN / n < 0.7, `duty ${(onN / n * 100).toFixed(0)}%`]);
+      out.push(['priority missile > pullUp > stall > lock', m.bag.all === 5 && m.bag.noMsl === 4 && m.bag.lockOnly === 2 && m.bag.none === 0, `all→${m.bag.all} noMissile→${m.bag.noMsl} lockOnly→${m.bag.lockOnly} none→${m.bag.none}`]);
+      out.push(['silent after stopFlight', m.rms(12.8, 13) < 1e-4, `rms ${f4(m.rms(12.8, 13))}`]);
+      return out;
+    },
+  };
+}
+
+for (const name of SHOT_NAMES) {
+  const dur = name === 'crash' ? 4.5 : name === 'explosion' ? 3.5 : 2.5;
+  SC[`one-shot ${name}`] = {
+    dur,
+    events: [{ t: 0.1, fn: e => e.play(name, name === 'touchdown' ? { hard: 0.7 } : name === 'explosion' ? { dist: 60, size: 1 } : {}) }],
+    checks(m) {
+      const on = m.onset(1e-4), off = m.lastAbove(1e-4);
+      return [
+        ['audible', m.peak(0, dur) > 0.01, `peak ${f4(m.peak(0, dur))} rms(first 0.3s) ${f4(m.rms(0.1, 0.4))}`],
+        ['soft onset / clean end', on.t >= 0.09 && m.peak(on.t, on.t + 0.0005) < 0.03 && m.peak(off.t - 0.0005, off.t + 0.001) < 0.01, `on@${on.t.toFixed(3)}s off@${off.t.toFixed(3)}s`],
+        ['ends silent', m.rms(dur - 0.2, dur) < 1e-5, `rms ${f4(m.rms(dur - 0.2, dur))}`],
+      ];
+    },
+  };
+}
+
+SC['one-shot unknown names ignored'] = {
+  dur: 0.6,
+  events: [{ t: 0.05, fn: e => { e.play('nope'); e.play('constructor'); e.play('toString', {}); e.play(undefined); e.play(null, null); e.play('__proto__'); } }],
+  checks: m => [['silent', m.peak(0, 0.6) === 0, `peak ${m.peak(0, 0.6)}`]],
+};
+
+SC['explosion near vs far'] = {
+  multi: {
+    near: { dur: 6.5, events: [{ t: 0.1, fn: e => e.play('explosion', { dist: 30, size: 1 }) }] },
+    far: { dur: 6.5, events: [{ t: 0.1, fn: e => e.play('explosion', { dist: 1000, size: 1 }) }] },
+    big: { dur: 6.5, events: [{ t: 0.1, fn: e => e.play('explosion', { dist: 300, size: 3 }) }] },
+    small: { dur: 6.5, events: [{ t: 0.1, fn: e => e.play('explosion', { dist: 300, size: 0.5 }) }] },
+  },
+  checks(mm) {
+    const n = mm.near, f = mm.far;
+    const tn = n.onset(1e-3).t, tf = f.onset(1e-3).t;
+    const wantN = 0.1 + 30 / 343, wantF = 0.1 + 1000 / 343;
+    const zn = n.zcr(tn, tn + 0.5), zf = f.zcr(tf, tf + 0.5);
+    return [
+      ['near louder than far', n.peak(0, 6.5) > f.peak(0, 6.5) * 2, `peak ${f4(n.peak(0, 6.5))} vs ${f4(f.peak(0, 6.5))}; rms ${f4(n.rms(tn, tn + 0.5))} vs ${f4(f.rms(tf, tf + 0.5))}`],
+      ['delay follows distance', Math.abs(tn - wantN) < 0.06 && Math.abs(tf - wantF) < 0.08, `near ${tn.toFixed(2)}s (want ${wantN.toFixed(2)}) far ${tf.toFixed(2)}s (want ${wantF.toFixed(2)})`],
+      ['far is duller (low-passed)', zf < zn * 0.7, `zero-crossings/s ${zf.toFixed(0)} vs ${zn.toFixed(0)}`],
+      ['size scales loudness', mm.big.rms(0.9, 2) > mm.small.rms(0.9, 2) * 1.5, `size3 ${f4(mm.big.rms(0.9, 2))} vs size0.5 ${f4(mm.small.rms(0.9, 2))}`],
+      ['all end silent', [n, f, mm.big, mm.small].every(x => x.rms(6.3, 6.5) < 1e-5), ''],
+    ];
+  },
+};
+
+SC['suspend/resume, mute, volume, replace'] = {
+  dur: 9,
+  events: [
+    { t: 0, fn: e => e.startFlight(SPECS.ef2000) },
+    { t: 1.5, fn: e => e.suspend() }, { t: 2.5, fn: e => e.resume() },
+    { t: 3.5, fn: e => e.setEnabled(false) }, { t: 4.5, fn: e => e.setEnabled(true) },
+    { t: 5.5, fn: e => e.setVolume(0.25) },
+    { t: 6.5, fn: e => e.startFlight(SPECS.spitfire) },
+    { t: 8, fn: e => e.stopFlight() }, { t: 8.1, fn: e => e.stopFlight() },
+  ],
+  state: () => st({ thrEff: 1, speed: 100 }),
+  checks(m) {
+    const a = m.rms(0.9, 1.5), paused = m.rms(2.0, 2.5), b = m.rms(3, 3.5), muted = m.rms(4, 4.5), c = m.rms(5, 5.5), q = m.rms(6, 6.5);
+    return [
+      ['suspend() silences flight', paused < 1e-4, `rms ${f4(paused)}`],
+      ['resume() restores', Math.abs(b / a - 1) < 0.25, `${f4(b)} vs ${f4(a)}`],
+      ['setEnabled(false) mutes', muted < 1e-4, `rms ${f4(muted)}`],
+      ['setEnabled(true) restores', Math.abs(c / a - 1) < 0.25, `${f4(c)} vs ${f4(a)}`],
+      ['setVolume(0.25) scales x0.25', Math.abs(q / c - 0.25) < 0.06, `ratio ${(q / c).toFixed(3)}`],
+      ['transitions no click', [1.5, 2.5, 3.5, 4.5, 5.5].every(t => m.delta(t, t + 0.2) <= m.delta(0.9, 1.5) * 1.25 + 0.003), [1.5, 2.5, 3.5, 4.5, 5.5].map(t => f4(m.delta(t, t + 0.2))).join(' ') + ` steady ${f4(m.delta(0.9, 1.5))}`],
+      ['startFlight() replaces voices', m.rms(7.3, 8) > 0.002 && m.tone(90 * 1.06, 7.3, 8) > m.tone(90 * 1.06, 5.6, 6.4) * 3, `rms ${f4(m.rms(7.3, 8))}; prop tone ${f4(m.tone(95.4, 7.3, 8))} vs jet ${f4(m.tone(95.4, 5.6, 6.4))}`],
+      ['replace no click', m.delta(6.5, 6.8) <= m.delta(5.9, 6.5) * 1.3 + 0.003, `d ${f4(m.delta(6.5, 6.8))} vs ${f4(m.delta(5.9, 6.5))}`],
+      ['silent after stopFlight', m.rms(8.75, 9) < 1e-4, `rms ${f4(m.rms(8.75, 9))}`],
+    ];
+  },
+};
+
+SC['worst-case stack (limiter)'] = {
+  dur: 5,
+  events: [
+    { t: 0, fn: e => e.startFlight(SPECS.ef2000) },
+    { t: 1.0, fn: e => { e.play('explosion', { dist: 0, size: 3 }); e.play('crash'); e.play('missile'); e.play('hit'); e.play('touchdown', { hard: 1 }); e.play('splash'); e.play('gear'); e.play('flare'); } },
+    { t: 1.2, fn: e => { e.play('explosion', { dist: 10, size: 3 }); e.play('hit'); } },
+    { t: 4.2, fn: e => e.stopFlight() },
+  ],
+  state: t => st({ thrEff: 1, ab: t > 0.5, speed: 470, buffet: 1, airbrake: 1, gForce: 9, firing: true, missileWarn: true, damaged: 1, gearMoving: true }),
+  checks: m => [
+    ['peak < 1.0 with everything at once', m.peak(0, 5) < 1.0, `peak ${f4(m.peak(0, 5))} rms ${f4(m.rms(1, 2))}`],
+    ['silent after stopFlight (+tails)', m.rms(4.9, 5) < 2e-3, `rms ${f4(m.rms(4.9, 5))}`],
+  ],
+};
+
+// ---------------------------------------------------------------- offline renderer + metrics
+const SR = 44100, QUANT = 1024;
+
+async function render(sc) {
+  const frames = Math.ceil(sc.dur * SR / QUANT) * QUANT;
+  const ctx = new OfflineAudioContext(1, frames, SR);
+  const eng = new AudioEngine({ context: ctx });
+  eng.unlock();
+  const evs = [...sc.events].sort((a, b) => a.t - b.t);
+  const bag = {};
+  let ei = 0, updates = 0;
+  const tick = (t) => {
+    while (ei < evs.length && evs[ei].t <= t + 1e-6) evs[ei++].fn(eng, bag);
+    if (sc.state) { eng.update(QUANT / SR, sc.state(t)); updates++; }
+  };
+  tick(0);
+  for (let k = 1; k * QUANT < frames; k++) {
+    const t = k * QUANT / SR;
+    ctx.suspend(t).then(() => { tick(t); ctx.resume(); });
+  }
+  const buf = await ctx.startRendering();
+  return metrics(buf.getChannelData(0), eng, bag, sc.dur);
+}
+
+function metrics(d, eng, bag, dur) {
+  const N = d.length;
+  const ix = (t) => Math.max(0, Math.min(N, Math.round(t * SR)));
+  let nan = 0, pk = 0;
+  for (let i = 0; i < N; i++) { const v = d[i]; if (v !== v || !isFinite(v)) nan++; else if (Math.abs(v) > pk) pk = Math.abs(v); }
+  const m = {
+    d, eng, bag, dur, nan, pk,
+    rms(t0, t1) { let s = 0; const a = ix(t0), b = ix(t1); for (let i = a; i < b; i++) s += d[i] * d[i]; return Math.sqrt(s / Math.max(1, b - a)); },
+    peak(t0, t1) { let p = 0; const a = ix(t0), b = ix(t1); for (let i = a; i < b; i++) { const v = Math.abs(d[i]); if (v > p) p = v; } return p; },
+    delta(t0, t1) { let p = 0; const a = Math.max(1, ix(t0)), b = ix(t1); for (let i = a; i < b; i++) { const v = Math.abs(d[i] - d[i - 1]); if (v > p) p = v; } return p; },
+    zcr(t0, t1) { let c = 0; const a = Math.max(1, ix(t0)), b = ix(t1); for (let i = a; i < b; i++) if ((d[i] >= 0) !== (d[i - 1] >= 0)) c++; return c / Math.max(1e-9, (b - a) / SR); },
+    onset(th) { for (let i = 0; i < N; i++) if (Math.abs(d[i]) > th) return { i, t: i / SR }; return { i: -1, t: -1 }; },
+    lastAbove(th) { for (let i = N - 1; i >= 0; i--) if (Math.abs(d[i]) > th) return { i, t: i / SR }; return { i: -1, t: -1 }; },
+    /** amplitude of a sinusoid at hz (Goertzel-style correlation) */
+    tone(hz, t0, t1) {
+      const a = ix(t0), b = ix(t1), w = 2 * Math.PI * hz / SR; let re = 0, im = 0;
+      for (let i = a; i < b; i++) { re += d[i] * Math.cos(w * i); im += d[i] * Math.sin(w * i); }
+      return 2 * Math.hypot(re, im) / Math.max(1, b - a);
+    },
+    /** fundamental period (s) of the loudness envelope, by autocorrelation (10..150 ms) */
+    period(t0, t1) {
+      const hop = 22, env = [];
+      for (let i = ix(t0); i + hop <= ix(t1); i += hop) { let s = 0; for (let j = 0; j < hop; j++) s += d[i + j] * d[i + j]; env.push(Math.sqrt(s / hop)); }
+      const mean = env.reduce((a, b) => a + b, 0) / env.length;
+      for (let i = 0; i < env.length; i++) env[i] -= mean;
+      const ac = [];
+      let best = -Infinity;
+      for (let lag = 20; lag <= 300; lag++) {
+        let s = 0; const n = env.length - lag;
+        for (let i = 0; i < n; i++) s += env[i] * env[i + lag];
+        ac[lag] = s / n; if (ac[lag] > best) best = ac[lag];
+      }
+      for (let lag = 21; lag < 300; lag++) if (ac[lag] >= 0.8 * best && ac[lag] >= ac[lag - 1] && ac[lag] >= ac[lag + 1]) return lag * hop / SR;
+      return 0;
+    },
+    windows() { const out = []; for (let t = 0; t < dur - 1e-6; t += 0.1) out.push([m.rms(t, t + 0.1), m.peak(t, t + 0.1)]); return out; },
+  };
+  return m;
+}
+
+async function runScenario(name) {
+  const sc = SC[name];
+  const rows = [];
+  let ms = [], checks = [];
+  try {
+    if (sc.multi) {
+      const mm = {};
+      for (const k of Object.keys(sc.multi)) { mm[k] = await render(sc.multi[k]); ms.push(mm[k]); }
+      checks = sc.checks(mm);
+    } else {
+      const m = await render(sc); ms = [m]; checks = sc.checks(m);
+    }
+  } catch (e) { checks = [['scenario ran', false, String(e && e.stack || e)]]; }
+  const pk = Math.max(0, ...ms.map(m => m.pk)), nan = ms.reduce((a, m) => a + m.nan, 0), errs = ms.reduce((a, m) => a + m.eng.errorCount, 0);
+  checks.push(['no clipping (peak < 1.0)', pk < 1.0, `peak ${f4(pk)}`]);
+  checks.push(['no NaN / engine errors', nan === 0 && errs === 0, `NaN ${nan}, errors ${errs}${errs ? ' ' + ms.map(m => m.eng.lastError).filter(Boolean)[0] : ''}`]);
+  for (const [check, pass, detail] of checks) rows.push({ scenario: name, check, pass: !!pass, detail });
+  const windows = ms.length === 1 ? ms[0].windows() : Object.fromEntries(Object.keys(sc.multi).map((k, i) => [k, ms[i].windows()]));
+  return { rows, windows, peak: pk, rms: ms.length === 1 ? ms[0].rms(0, ms[0].dur) : 0 };
+}
+
+// ---------------------------------------------------------------- non-render contract tests
+function contractTests() {
+  const rows = [];
+  const add = (check, pass, detail = '') => rows.push({ scenario: 'contract', check, pass: !!pass, detail });
+  const exercise = (e) => {
+    e.setEnabled(false); e.setEnabled(true); e.setVolume(0.5); e.setVolume(NaN);
+    e.startFlight(SPECS.ef2000); e.update(0.016, st({ thrEff: 1, firing: true, lock: 2 })); e.update(0.016, null); e.update(NaN, {});
+    for (const n of SHOT_NAMES) e.play(n, { dist: 100, size: 1, hard: 1 });
+    e.play('nope'); e.suspend(); e.resume(); e.stopFlight(); e.stopFlight();
+  };
+  try {
+    const e = new AudioEngine();
+    exercise(e);
+    add('all methods are no-ops before unlock()', e.ctx === null && e.errorCount === 0, `ctx ${e.ctx}`);
+  } catch (err) { add('all methods are no-ops before unlock()', false, String(err)); }
+  const AC = window.AudioContext, WAC = window.webkitAudioContext;
+  try {
+    window.AudioContext = undefined; window.webkitAudioContext = undefined;
+    const e = new AudioEngine();
+    const r = e.unlock(); exercise(e); e.unlock();
+    add('no WebAudio: constructor/unlock/everything harmless', r === false && e.ctx === null && e.errorCount === 0, `unlock() → ${r}`);
+  } catch (err) { add('no WebAudio: constructor/unlock/everything harmless', false, String(err)); }
+  finally { window.AudioContext = AC; if (WAC) window.webkitAudioContext = WAC; else delete window.webkitAudioContext; }
+  try {
+    // garbage input must not throw or poison params
+    const ctx = new OfflineAudioContext(1, 4096, SR);
+    const e = new AudioEngine({ context: ctx }); e.unlock(); e.unlock();
+    e.startFlight({}); e.startFlight(null); e.startFlight({ type: 'ufo', engines: 'x', ab: NaN });
+    e.update(0, { thrEff: NaN, speed: Infinity, vMax: 0, gForce: 'a', buffet: -5, groundSpeed: NaN, gunRate: 0, firing: true, lock: 9, damaged: 99, airbrake: undefined });
+    e.update(0, {}); e.play('explosion', { dist: NaN, size: -1 }); e.play('explosion', { dist: -50, size: 1e9 }); e.play('touchdown', { hard: 'x' }); e.play('explosion');
+    add('garbage inputs tolerated', e.errorCount === 0, e.errorCount ? String(e.lastError) : '');
+  } catch (err) { add('garbage inputs tolerated', false, String(err)); }
+  return rows;
+}
+
+// ---------------------------------------------------------------- live smoke test (real AudioContext)
+async function liveTest(seconds = 4) {
+  const rows = [];
+  const add = (check, pass, detail = '') => rows.push({ scenario: 'live AudioContext', check, pass: !!pass, detail });
+  const e = new AudioEngine();
+  try {
+    e.unlock(); e.unlock();
+    const ctx = e.ctx;
+    const an = ctx.createAnalyser(); an.fftSize = 2048; e.output.connect(an);
+    const buf = new Float32Array(2048);
+    const ids = Object.keys(SPECS);
+    let n = 0, pk = 0, nan = 0, flights = 0;
+    const t0 = performance.now(), c0 = ctx.currentTime;
+    await new Promise(res => {
+      const iv = setInterval(() => {
+        const t = (performance.now() - t0) / 1000;
+        if (t > seconds) { clearInterval(iv); res(); return; }
+        if (Math.floor(t / 0.6) >= flights) { e.startFlight(SPECS[ids[flights % ids.length]]); flights++; }
+        for (let k = 0; k < 5; k++) {   // rapid: 5 updates per 4 ms timer
+          e.update(0.004, st({
+            thrEff: Math.random(), ab: Math.random() < 0.5, speed: Math.random() * 500, buffet: Math.random(), onGround: Math.random() < 0.3,
+            groundSpeed: Math.random() * 80, airbrake: Math.random(), gearMoving: Math.random() < 0.5, firing: Math.sin(t * 20) > 0,
+            gunRate: 0.03 + Math.random() * 0.03, lock: (Math.random() * 3) | 0, missileWarn: Math.sin(t * 9) > 0.5, stall: Math.random() < 0.2,
+            pullUp: Math.random() < 0.1, cockpit: Math.sin(t * 5) > 0, damaged: Math.random(), gForce: Math.random() * 9,
+          }));
+          n++;
+        }
+        if (n % 40 === 0) e.play(SHOT_NAMES[(n / 40) % SHOT_NAMES.length], { dist: Math.random() * 800, size: 1 + Math.random(), hard: Math.random() });
+        if (n % 300 === 0) { e.suspend(); e.resume(); }
+        an.getFloatTimeDomainData(buf);
+        for (let i = 0; i < buf.length; i++) { const v = buf[i]; if (v !== v) nan++; else if (Math.abs(v) > pk) pk = Math.abs(v); }
+      }, 4);
+    });
+    add('context running, clock advancing', ctx.state === 'running' && ctx.currentTime - c0 > seconds * 0.5, `state ${ctx.state}, +${(ctx.currentTime - c0).toFixed(2)}s`);
+    add(`${n} rapid update() calls, ${flights} flight swaps: no engine errors`, e.errorCount === 0, e.errorCount ? String(e.lastError) : '');
+    add('live output audible, < 1.0, no NaN', pk > 0.01 && pk < 1.0 && nan === 0, `peak ${f4(pk)} NaN ${nan}`);
+    e.stopFlight();
+    await new Promise(r => setTimeout(r, 1900));
+    // one-shot bookkeeping returns to zero => nodes were released (longest tail here is the crash, ~3 s)
+    await new Promise(r => setTimeout(r, 2500));
+    add('one-shot nodes all released', e._active === 0, `active ${e._active}`);
+    an.getFloatTimeDomainData(buf);
+    let tail = 0; for (let i = 0; i < buf.length; i++) tail = Math.max(tail, Math.abs(buf[i]));
+    add('silent after stopFlight (live)', tail < 1e-4, `peak ${f4(tail)}`);
+    // context suspended behind our back (screen lock): unlock() must bring it back
+    await ctx.suspend();
+    e.play('click'); e.update(0.016, st({}));
+    const sus = ctx.state;
+    e.unlock();
+    await new Promise(r => setTimeout(r, 300));
+    add('recovers from a suspended context on unlock()', sus === 'suspended' && ctx.state === 'running' && e.errorCount === 0, `${sus} → ${ctx.state}`);
+    await ctx.close();
+    e.play('click'); e.update(0.016, st({})); e.unlock(); e.stopFlight();
+    add('closed context tolerated', true, `errors ${e.errorCount}`);
+  } catch (err) { add('live test ran', false, String(err && err.stack || err)); }
+  return rows;
+}
+
+async function runAll(onRow) {
+  const rows = [], windows = {};
+  const push = (rs) => { for (const r of rs) { rows.push(r); if (onRow) onRow(r); } };
+  push(contractTests());
+  for (const name of Object.keys(SC)) {
+    const r = await runScenario(name);
+    windows[name] = r.windows;
+    push(r.rows);
+  }
+  push(await liveTest());
+  return { rows, windows };
+}
+
+// ---------------------------------------------------------------- UI
+const $ = (id) => document.getElementById(id);
+const live = new AudioEngine();
+window.__audio = live;
+let manual = false, script = null;
+const statusEl = $('status');
+const say = (s) => { statusEl.textContent = s; };
+
+for (const id of Object.keys(SPECS)) { const o = document.createElement('option'); o.value = id; o.textContent = id; $('ac').appendChild(o); }
+const curSpec = () => SPECS[$('ac').value];
+const manualState = () => {
+  const spec = curSpec(), sp = +$('spd').value * spec.vMax, ground = $('ground').checked;
+  return st({
+    thrEff: +$('thr').value, ab: $('ab').checked, speed: sp, vMax: spec.vMax, buffet: +$('buf').value, airbrake: +$('brk').value,
+    damaged: +$('dmg').value, onGround: ground, groundSpeed: ground ? sp : 0, gearMoving: $('gearm').checked, firing: $('fire').checked,
+    gunRate: spec.gunRate, lock: +$('lock').value, stall: $('stall').checked, pullUp: $('pull').checked, missileWarn: $('msl').checked, cockpit: $('cockpit').checked,
+  });
+};
+$('mStart').onclick = () => { live.unlock(); script = null; live.startFlight(curSpec()); manual = true; say(`flying ${$('ac').value} (manual)`); };
+$('mStop').onclick = () => { live.unlock(); manual = false; script = null; live.stopFlight(); say('stopped'); };
+$('mPause').onclick = () => { live.suspend(); say('suspended'); };
+$('mResume').onclick = () => { live.resume(); say('resumed'); };
+$('vol').oninput = () => live.setVolume(+$('vol').value);
+$('mute').onchange = () => live.setEnabled(!$('mute').checked);
+
+const shotOpts = {
+  'explosion (near)': ['explosion', { dist: 30, size: 1 }], 'explosion (500 m)': ['explosion', { dist: 500, size: 1.5 }], 'explosion (2 km, big)': ['explosion', { dist: 2000, size: 3 }],
+  'touchdown (soft)': ['touchdown', { hard: 0.1 }], 'touchdown (hard)': ['touchdown', { hard: 1 }],
+};
+const shotBtn = (label, name, opts) => {
+  const b = document.createElement('button'); b.textContent = label;
+  b.onclick = () => { live.unlock(); live.play(name, opts); };
+  $('shots').appendChild(b);
+};
+for (const n of SHOT_NAMES) if (n !== 'explosion' && n !== 'touchdown') shotBtn(n, n, {});
+for (const [label, [n, o]] of Object.entries(shotOpts)) shotBtn(label, n, o);
+
+for (const name of Object.keys(SC)) {
+  const sc = SC[name];
+  if (sc.multi || name.startsWith('one-shot')) continue;
+  const b = document.createElement('button'); b.textContent = name;
+  b.onclick = () => {
+    live.unlock(); live.setEnabled(true); live.setVolume(+$('vol').value); live.resume(); live.stopFlight(); manual = false;
+    script = { sc, name, t0: performance.now(), ei: 0, evs: [...sc.events].sort((a, b2) => a.t - b2.t), bag: {} };
+  };
+  $('scn').appendChild(b);
+}
+
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  if (script) {
+    const t = (now - script.t0) / 1000;
+    while (script.ei < script.evs.length && script.evs[script.ei].t <= t) script.evs[script.ei++].fn(live, script.bag);
+    if (script.sc.state) live.update(dt, script.sc.state(t));
+    say(`${script.name}: ${t.toFixed(1)} / ${script.sc.dur}s`);
+    if (t > script.sc.dur) { script = null; live.stopFlight(); live.setVolume(+$('vol').value); live.setEnabled(!$('mute').checked); say('scenario finished'); }
+  } else if (manual) live.update(dt, manualState());
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function showResults(rows) {
+  const bad = rows.filter(r => !r.pass).length;
+  $('results').innerHTML = `<p class="${bad ? 'bad' : 'ok'}">${rows.length - bad}/${rows.length} checks passed</p><table><tr><th>scenario</th><th>check</th><th></th><th>measured</th></tr>` +
+    rows.map(r => `<tr><td>${r.scenario}</td><td>${r.check}</td><td class="${r.pass ? 'ok' : 'bad'}">${r.pass ? 'PASS' : 'FAIL'}</td><td>${String(r.detail).replace(/</g, '&lt;')}</td></tr>`).join('') + '</table>';
+}
+$('runTests').onclick = async () => { $('results').textContent = 'rendering…'; const r = await runAll(); showResults(r.rows); };
+
+window.__runAll = runAll;
+if (new URLSearchParams(location.search).has('auto')) {
+  runAll().then(r => { showResults(r.rows); window.__audioResults = r; }, e => { window.__audioResults = { rows: [{ scenario: 'harness', check: 'ran', pass: false, detail: String(e && e.stack || e) }], windows: {} }; });
+}
+</script>
+</body>
+</html>

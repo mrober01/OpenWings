@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b1020">
+<title>OpenWings</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <!-- all in-flight symbology is drawn on this canvas (src/ui/Hud.js) -->
+  <canvas id="hud-canvas"></canvas>
+  <div id="damage-vignette"></div>
+
+  <!-- ===== Touch controls (phones / tablets) ===== -->
+  <div id="touch-ui" class="hidden">
+    <div id="look-zone"></div>
+    <div id="stick-zone"></div>
+    <div id="stick-base"><div id="stick-nub"></div></div>
+    <div id="btns">
+      <button class="tbtn sm" id="btn-view">VIEW</button>
+      <button class="tbtn sm" id="btn-gear">GEAR</button>
+      <button class="tbtn sm" id="btn-nav">NAV</button>
+      <button class="tbtn" id="btn-flare">FLR</button>
+      <button class="tbtn" id="btn-msl">MSL</button>
+      <button class="tbtn" id="btn-tgt">TGT</button>
+      <button class="tbtn gun" id="btn-fire">GUN</button>
+      <button class="tbtn" id="btn-brake">BRK</button>
+    </div>
+    <div id="throttle-zone">
+      <div id="throttle-track"><div id="ab-mark">AB</div><div id="throttle-knob"></div></div>
+    </div>
+  </div>
+  <button id="btn-pause" class="hidden" aria-label="Pause">II</button>
+
+  <!-- ===== Hangar ===== -->
+  <div id="menu" class="screen">
+    <div class="menu-inner">
+      <header>
+        <h1>OPEN<span>WINGS</span></h1>
+        <p class="tagline">Nordic air combat · runs offline · phone &amp; desktop</p>
+      </header>
+      <section><h2>AIRCRAFT</h2><div class="cards" id="aircraft-cards"></div></section>
+      <section><h2>MISSION</h2><div class="cards" id="mission-cards"></div></section>
+      <section><h2>OPTIONS</h2><div class="opts" id="options"></div></section>
+      <p class="menu-help" id="menu-help"></p>
+    </div>
+    <button id="btn-fly" class="big-btn">FLY ▶</button>
+  </div>
+
+  <!-- ===== Pause ===== -->
+  <div id="pause" class="screen overlay hidden">
+    <div class="dialog">
+      <h1>PAUSED</h1>
+      <div class="stats" id="pause-stats"></div>
+      <button class="big-btn" id="btn-resume">RESUME</button>
+      <button class="big-btn ghost" id="btn-restart">RESTART</button>
+      <button class="big-btn ghost" id="btn-hangar">HANGAR</button>
+    </div>
+  </div>
+
+  <!-- ===== Debrief ===== -->
+  <div id="endscreen" class="screen overlay hidden">
+    <div class="dialog">
+      <h1 id="end-title">DEBRIEF</h1>
+      <div class="stats" id="end-stats"></div>
+      <button class="big-btn" id="btn-end-restart">FLY AGAIN</button>
+      <button class="big-btn ghost" id="btn-end-hangar">HANGAR</button>
+    </div>
+  </div>
+
+  <div id="rotate-hint"><div>⟳<p>Rotate your phone to landscape</p></div></div>
+  <div id="loading" class="screen hidden"><div class="spinner"></div><p id="loading-msg">Building world…</p></div>
+  <div id="toast"></div>
+
+  <script type="importmap">
+  { "imports": { "three": "./assets/vendor/three.module.js" } }
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
