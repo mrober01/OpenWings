@@ -1,5 +1,7 @@
 # OpenWings — browser flight / air-combat sim (v2)
 
+**▶ Play it now: https://mrober01.github.io/OpenWings/** (phone or PC, nothing to install)
+
 A self-contained 3D flight simulator that runs in any modern browser, built
 **phone-first** (landscape, touch), in the spirit of the 90s combat flight sims. No server, no accounts,
 no internet: everything is procedural and the whole game builds into **one HTML file**.
