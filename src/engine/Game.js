@@ -126,16 +126,34 @@ export class Game {
   }
 
   /** (Re)build the world only when quality, time of day or map changed. */
-  ensureEnv() {
+  /** Settings key of the world a mission would need (quality : time of day : map). */
+  envKey(map) {
+    const s = this.settings;
+    let q = s.get('quality');
+    if (q === 'auto') q = 'med';
+    return q + ':' + s.get('tod') + ':' + (map || s.get('map'));
+  }
+
+  /** True when starting a mission now would have to build a new world (UI shows a loading screen). */
+  needsEnv() { return !this.env || this._envKey !== this.envKey(); }
+
+  ensureEnv(map) {
     const s = this.settings;
     let q = s.get('quality');
     this.autoRes = q === 'auto';
     if (q === 'auto') q = 'med';
-    const tod = s.get('tod'), map = s.get('map'), envKey = q + ':' + tod + ':' + map;
+    const tod = s.get('tod'), envKey = this.envKey(map);
+    map = map || s.get('map');
     if (!this.env || this._envKey !== envKey) {
-      if (this.env) this.env.dispose();
+      // Build the new world BEFORE disposing the old one: disposing first frees every shader
+      // program, and the new world (same materials) would recompile them all (~1 s+). The old
+      // world is only unhooked from the scene meanwhile, so its lights don't change program keys.
+      const old = this.env;
+      if (old) { this.scene.remove(old.group); this.scene.remove(old.hemi); this.scene.remove(old.sun); }
       this.engine.applyQuality(q);
       this.env = new Environment(this.engine, { time: tod, map });
+      try { this.engine.renderer.compile(this.scene, this.engine.camera); } catch { /* compiles on first frame instead */ }
+      if (old) old.dispose();
       this._envKey = envKey;
       this.effects.setAtmosphere(this.env);
       if (this.engine.post) this.engine.post.setGrade(this.env.atmo);

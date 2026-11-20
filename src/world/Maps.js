@@ -180,13 +180,13 @@ function segDist(x, z, ax, az, bx, bz) {
 function realShape(hf, x, z, relief) {
   const map = hf.map, R = realGrid(map.real);
   const i = Math.round((x + hf.half) / R.cell), j = Math.round((z + hf.half) / R.cell), k = j * R.n + i;
-  const n = hf.noise;
-  const edge = smoothstep(hf.half - 100, hf.half - 800, Math.max(Math.abs(x), Math.abs(z)) + n.noise2D(x / 2500, z / 2500) * 120);
+  const n = hf.noise, em = Math.max(Math.abs(x), Math.abs(z));
+  const edge = em < hf.half - 950 ? 1 : smoothstep(hf.half - 100, hf.half - 800, em + n.noise2D(x / 2500, z / 2500) * 120);
   let h;
   // islands forced by landmarks (Liberty Island is smaller than one terrain cell)
   let island = 0;
   for (const lm of map.landmarks || []) if (lm.island) {
-    const [lx, lz] = R.ll(lm.at[0], lm.at[1]);
+    const [lx, lz] = llOf(R, lm.at);
     island = Math.max(island, smoothstep(lm.island + 90, lm.island - 40, Math.hypot(x - lx, z - lz)));
   }
   if (R.cls[k] === 0 && island < 0.5) {
@@ -203,88 +203,118 @@ function realShape(hf, x, z, relief) {
   return Math.max(h, SEA_FLOOR);
 }
 
+// lat/lon -> metres, memoised per (grid, point): the shapes run these for every terrain vertex
+const llMemo = new WeakMap();
+const llOf = (R, at) => {
+  let m = llMemo.get(R);
+  if (!m) llMemo.set(R, m = new Map());
+  let v = m.get(at);
+  if (!v) m.set(at, v = R.ll(at[0], at[1]));
+  return v;
+};
 /** Gaussian-ish hill at [lat, lon]: height h, radius r (m), steepness via the exponent. */
 const hill = (R, x, z, at, h, r, p = 2) => {
-  const [hx, hz] = R.ll(at[0], at[1]);
-  const d = Math.hypot(x - hx, z - hz) / r;
-  return h * Math.exp(-Math.pow(d, p));
+  const [hx, hz] = llOf(R, at);
+  const dx = x - hx, dz = z - hz;
+  if (dx * dx + dz * dz > 9 * r * r) return 0;                       // < 0.01 % of h out there
+  const d = Math.sqrt(dx * dx + dz * dz) / r;
+  return h * Math.exp(-(p === 2 ? d * d : Math.pow(d, p)));
 };
 /** A ridge along a lat/lon polyline. */
 const ridge = (R, x, z, pts, h, r) => {
   let d = Infinity;
   for (let k = 0; k + 1 < pts.length; k++) {
-    const [ax, az] = R.ll(...pts[k]), [bx, bz] = R.ll(...pts[k + 1]);
+    const [ax, az] = llOf(R, pts[k]), [bx, bz] = llOf(R, pts[k + 1]);
     d = Math.min(d, segDist(x, z, ax, az, bx, bz));
   }
-  return h * Math.exp(-(d / r) * (d / r));
+  return d > 3 * r ? 0 : h * Math.exp(-(d / r) * (d / r));
+};
+
+/* Relief tables: hills are [[lat, lon], height, radius, exponent?], ridges [[[lat, lon], …], height, half-width].
+   Kept at module level so llOf() memoises every point (the shapes run once per terrain vertex). */
+const sumRelief = (R, x, z, hills, ridges) => {
+  let h = 0;
+  for (const [at, H, r, p] of hills) h += hill(R, x, z, at, H, r, p);
+  for (const [pts, H, r] of ridges) h += ridge(R, x, z, pts, H, r);
+  return h;
 };
 
 /* New York: the Palisades cliff along the Hudson's west bank, Washington Heights, the glacial
    moraine across Brooklyn and Queens, Todt Hill on Staten Island. */
+const PALISADES = [40.80, -73.99];
+const NYC_HILLS = [
+  [[40.597, -74.115], 105, 2600, 1.6],                                                // Todt Hill
+];
+const NYC_RIDGES = [
+  [[[40.835, -73.944], [40.872, -73.925]], 45, 450],                                  // Washington Heights
+  [[[40.655, -73.975], [40.685, -73.905], [40.712, -73.840], [40.745, -73.735]], 28, 1300],   // moraine
+  [[[40.86, -73.88], [40.90, -73.86]], 25, 1500],                                     // Bronx
+];
 function nyc(hf, x, z) {
   return realShape(hf, x, z, (x, z, R, dl) => {
-    let h = 0;
+    let h = sumRelief(R, x, z, NYC_HILLS, NYC_RIDGES);
     // Palisades: a sheer basalt wall straight up from the river, north of Weehawken
-    const [px, pz] = R.ll(40.80, -73.99);
+    const [px, pz] = llOf(R, PALISADES);
     const lat = 40.722 - z / 110574;
     if (lat > 40.755 && x < px + (pz - z) * 0.49 + 250) {
       const along = smoothstep(40.755, 40.80, lat);
       h += along * 95 * smoothstep(0, 160, dl) * smoothstep(2600, 1400, dl);
     }
-    h += ridge(R, x, z, [[40.835, -73.944], [40.872, -73.925]], 45, 450);              // Washington Heights
-    h += ridge(R, x, z, [[40.655, -73.975], [40.685, -73.905], [40.712, -73.840], [40.745, -73.735]], 28, 1300);
-    h += hill(R, x, z, [40.597, -74.115], 105, 2600, 1.6);                              // Todt Hill
-    h += ridge(R, x, z, [[40.86, -73.88], [40.90, -73.86]], 25, 1500);                  // Bronx
     return h;
   });
 }
 
 /* Paris: the Seine valley between the buttes — Montmartre, Belleville, Mont Valérien — and the
    wooded plateaus of Meudon / Saint-Cloud to the south-west. */
+const PARIS_HILLS = [
+  [[48.8867, 2.3431], 92, 520, 1.7],              // Montmartre
+  [[48.8730, 2.3900], 58, 1300],                  // Belleville / Ménilmontant
+  [[48.8800, 2.3830], 25, 500],                   // Buttes-Chaumont
+  [[48.8714, 2.2126], 118, 1000, 1.6],            // Mont Valérien
+  [[48.885, 2.455], 75, 2400],                    // Romainville plateau
+  [[49.000, 2.310], 120, 3200],                   // Montmorency hills
+  [[48.840, 2.520], 50, 3000],                    // Plateau d'Avron
+];
+const PARIS_RIDGES = [
+  [[[48.845, 2.205], [48.815, 2.215], [48.795, 2.250], [48.780, 2.300]], 95, 1900],   // Saint-Cloud / Meudon
+  [[[48.800, 2.330], [48.775, 2.400]], 55, 2600],                                     // Villejuif plateau (Orly side)
+];
 function paris(hf, x, z) {
-  return realShape(hf, x, z, (x, z, R) => {
-    let h = 0;
-    h += hill(R, x, z, [48.8867, 2.3431], 92, 520, 1.7);           // Montmartre
-    h += hill(R, x, z, [48.8730, 2.3900], 58, 1300);               // Belleville / Ménilmontant
-    h += hill(R, x, z, [48.8800, 2.3830], 25, 500);                // Buttes-Chaumont
-    h += hill(R, x, z, [48.8714, 2.2126], 118, 1000, 1.6);         // Mont Valérien
-    h += ridge(R, x, z, [[48.845, 2.205], [48.815, 2.215], [48.795, 2.250], [48.780, 2.300]], 95, 1900);   // Saint-Cloud / Meudon
-    h += hill(R, x, z, [48.885, 2.455], 75, 2400);                 // Romainville plateau
-    h += ridge(R, x, z, [[48.800, 2.330], [48.775, 2.400]], 55, 2600);   // Villejuif plateau (Orly side)
-    h += hill(R, x, z, [49.000, 2.310], 120, 3200);                // Montmorency hills
-    h += hill(R, x, z, [48.840, 2.520], 50, 3000);                 // Plateau d'Avron
-    return h;
-  });
+  return realShape(hf, x, z, (x, z, R) => sumRelief(R, x, z, PARIS_HILLS, PARIS_RIDGES));
 }
 
 /* London: the Thames basin between Hampstead and the Crystal Palace ridge. */
+const LONDON_HILLS = [
+  [[51.5630, -0.1650], 105, 2300],                // Hampstead / Highgate
+  [[51.4700, 0.0650], 110, 1700],                 // Shooters Hill
+  [[51.5720, -0.3370], 85, 1100],                 // Harrow on the Hill
+  [[51.4510, -0.2950], 40, 1500],                 // Richmond Hill
+  [[51.4770, -0.0010], 38, 700],                  // Greenwich Park
+  [[51.6000, -0.0800], 50, 3500],                 // the northern heights
+];
+const LONDON_RIDGES = [
+  [[[51.4400, -0.1200], [51.4180, -0.0700], [51.4300, -0.0200]], 95, 1900],           // Norwood / Crystal Palace
+];
 function london(hf, x, z) {
-  return realShape(hf, x, z, (x, z, R) => {
-    let h = 0;
-    h += hill(R, x, z, [51.5630, -0.1650], 105, 2300);              // Hampstead / Highgate
-    h += ridge(R, x, z, [[51.4400, -0.1200], [51.4180, -0.0700], [51.4300, -0.0200]], 95, 1900);   // Norwood / Crystal Palace
-    h += hill(R, x, z, [51.4700, 0.0650], 110, 1700);               // Shooters Hill
-    h += hill(R, x, z, [51.5720, -0.3370], 85, 1100);               // Harrow on the Hill
-    h += hill(R, x, z, [51.4510, -0.2950], 40, 1500);               // Richmond Hill
-    h += hill(R, x, z, [51.4770, -0.0010], 38, 700);                // Greenwich Park
-    h += hill(R, x, z, [51.6000, -0.0800], 50, 3500);               // the northern heights
-    return h;
-  });
+  return realShape(hf, x, z, (x, z, R) => sumRelief(R, x, z, LONDON_HILLS, LONDON_RIDGES));
 }
 
 /* Rio de Janeiro: real SRTM terrain, sharpened at the famous granite peaks the coarse grid rounds off. */
+const RIO_PEAKS = [
+  [[-22.9492, -43.1546], 392, 300, 2.6],          // Sugarloaf
+  [[-22.9505, -43.1636], 215, 260, 2.2],          // Morro da Urca
+  [[-22.9519, -43.2105], 700, 480, 1.6],          // Corcovado
+  [[-22.9395, -43.2856], 1015, 1100, 1.5],        // Pico da Tijuca
+  [[-22.9975, -43.2847], 835, 620, 3.0],          // Pedra da Gávea (flat-topped)
+  [[-22.9880, -43.2400], 530, 420, 1.8],          // Dois Irmãos
+  [[-22.9300, -43.1150], 280, 900, 1.6],          // Niterói hills
+];
 function rio(hf, x, z) {
   return realShape(hf, x, z, (x, z, R, dl) => {
     const e = R.elevAt(x, z);
     let h = (e + hf.ridged(x / 1400, z / 1400, 4) * Math.min(e, 600) * 0.12) * smoothstep(0, 220, dl);
-    const pk = (at, H, r, p) => { h = Math.max(h, hill(R, x, z, at, H, r, p) * smoothstep(0, 60, dl)); };
-    pk([-22.9492, -43.1546], 392, 300, 2.6);                        // Sugarloaf
-    pk([-22.9505, -43.1636], 215, 260, 2.2);                        // Morro da Urca
-    pk([-22.9519, -43.2105], 700, 480, 1.6);                        // Corcovado
-    pk([-22.9395, -43.2856], 1015, 1100, 1.5);                      // Pico da Tijuca
-    pk([-22.9975, -43.2847], 835, 620, 3.0);                        // Pedra da Gávea (flat-topped)
-    pk([-22.9880, -43.2400], 530, 420, 1.8);                        // Dois Irmãos
-    pk([-22.9300, -43.1150], 280, 900, 1.6);                        // Niterói hills
+    const k = smoothstep(0, 60, dl);
+    for (const [at, H, r, p] of RIO_PEAKS) h = Math.max(h, hill(R, x, z, at, H, r, p) * k);
     return h - 1.5;
   });
 }

@@ -5,6 +5,7 @@ import { clamp } from '../engine/utils.js';
 import { AIRCRAFT_SPECS, PLAYABLE } from '../aircraft/AircraftSpecs.js';
 import { MISSIONS, MISSION_ORDER, missionBlurb } from '../engine/Missions.js';
 import { getMap } from '../world/Maps.js';
+import { MAP_THUMBS } from './mapThumbs.js';
 import { OPTIONS } from '../engine/Settings.js';
 import { AB_DETENT } from '../engine/FlightModel.js';
 
@@ -71,9 +72,13 @@ export class UI {
       const el = mk(this.$('options'), 'opt', '', () => {
         this.settings.cycle(k); paint(); this.refreshBest();
         if (k === 'map') { this.optPaint.start(); this.refreshBlurbs(); }
-        if (k === 'tod' || k === 'quality' || k === 'map') this.game.showcase(this.aircraft);
+        // the label changes at once; the backdrop world follows once the clicking stops
+        if (k === 'tod' || k === 'quality' || k === 'map') this.queueBackdrop();
       });
-      const paint = () => { el.innerHTML = `<i>${OPTIONS[k].label}</i><b>${this.optName(k)}</b>`; };
+      // MAP also shows a top-down picture of the map, which changes the instant you click
+      const thumb = () => (k === 'map' && MAP_THUMBS[this.settings.get('map')] ? `<img class="thumb" alt="" src="${MAP_THUMBS[this.settings.get('map')]}">` : '');
+      const paint = () => { el.innerHTML = `${thumb()}<i>${OPTIONS[k].label}</i><b>${this.optName(k)}</b>`; el.classList.toggle('has-thumb', k === 'map'); };
+      paint.el = el;
       paint();
       this.optPaint[k] = paint;
       if (k === 'start') this.startOpt = el;
@@ -139,7 +144,29 @@ export class UI {
     this.setFlightUi(false);
     this.refreshBest();
     this._menuUp = true;
-    this.game.showcase(this.aircraft);
+    // the menu is usable straight away; the 3D backdrop (a whole world to build) comes a frame later
+    this.queueBackdrop(0);
+  }
+
+  /**
+   * Rebuild the menu backdrop for the current map / time / graphics settings, `delay` ms after the
+   * last request — clicking through the maps stays instant and only the one you stop on is built.
+   * While a new world is pending the MAP option reads LOADING (painted before the build blocks).
+   */
+  queueBackdrop(delay = 350) {
+    clearTimeout(this._backdropT);
+    const busy = this.game.needsEnv() && this.optPaint.map;
+    if (busy) this.setMapBusy(true);
+    this._backdropT = setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+      this._backdropT = null;
+      if (this._menuUp && this.game.state === 'menu') this.game.showcase(this.aircraft);
+      this.setMapBusy(false);
+    })), delay);
+  }
+
+  setMapBusy(on) {
+    const el = this.optPaint.map && this.optPaint.map.el;
+    if (el) el.classList.toggle('busy', on);
   }
 
   hideMenu() { this.show('menu', false); }
@@ -151,7 +178,20 @@ export class UI {
     if (this.isTouch && this.settings.get('tilt')) this.initTilt();
     this.calibrateTilt();
     this._menuUp = false;
-    this.game.startMission(this.mission, this.aircraft);
+    clearTimeout(this._backdropT); this._backdropT = null; this.setMapBusy(false);
+    if (!this.game.needsEnv()) { this.game.startMission(this.mission, this.aircraft); return; }
+    // a different world: show the loading screen, let it paint, build, and keep it up through the
+    // first frame (where the GPU uploads textures) so the player never sees a frozen menu
+    if (this._loadingWorld) return;
+    this._loadingWorld = true;
+    const scr = document.getElementById('loading'), msg = document.getElementById('loading-msg');
+    if (msg) msg.textContent = `Loading ${getMap(this.settings.get('map')).name.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}…`;
+    if (scr) scr.classList.remove('hidden');
+    const frame = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
+    frame(() => {
+      try { this.game.startMission(this.mission, this.aircraft); }
+      finally { frame(() => { if (scr) scr.classList.add('hidden'); this._loadingWorld = false; }); }
+    });
   }
 
   /** Fullscreen + landscape + keep the screen awake (phones). Every call is best-effort. */

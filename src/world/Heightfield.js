@@ -284,6 +284,14 @@ export class Heightfield {
     // the building placement agree exactly). Patchwork maps get a random angle per Voronoi cell.
     const S = 512, ang = new Uint8Array(S * S), cs = this.size / S, VC = 1400;
     const hash = (i, k) => { const v = Math.sin(i * 127.1 + k * 311.7 + this.map.seed * 1000) * 43758.5453; return v - Math.floor(v); };
+    // one jittered seed point + angle per Voronoi cell, hashed once (not 9 times per texel)
+    const seeds = new Map();
+    const seed = (gi, gk) => {
+      const key = gi * 4096 + gk;
+      let sd = seeds.get(key);
+      if (!sd) seeds.set(key, sd = [(gi + 0.15 + 0.7 * hash(gi, gk)) * VC, (gk + 0.15 + 0.7 * hash(gk + 17, gi - 5)) * VC, hash(gi * 3 + 1, gk * 7 - 2) * 0.5]);
+      return sd;
+    };
     for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
       let a;
       if (u.angle != null) a = u.angle / 180;
@@ -292,10 +300,9 @@ export class Heightfield {
         const ci = Math.floor(x / VC), ck = Math.floor(z / VC);
         let bd = Infinity; a = 0;
         for (let di = -1; di <= 1; di++) for (let dk = -1; dk <= 1; dk++) {
-          const gi = ci + di, gk = ck + dk;
-          const px = (gi + 0.15 + 0.7 * hash(gi, gk)) * VC, pz = (gk + 0.15 + 0.7 * hash(gk + 17, gi - 5)) * VC;
+          const [px, pz, sa] = seed(ci + di, ck + dk);
           const d = (x - px) ** 2 + (z - pz) ** 2;
-          if (d < bd) { bd = d; a = hash(gi * 3 + 1, gk * 7 - 2) * 0.5; }   // 0..90 deg is enough for a grid
+          if (d < bd) { bd = d; a = sa; }                                 // 0..90 deg is enough for a grid
         }
       }
       ang[j * S + i] = Math.round(((a % 1) + 1) % 1 * 255);
@@ -326,8 +333,25 @@ export class Heightfield {
     return smoothstep(zn.r, zn.r * 0.65, d);
   }
 
-  /** How much street-grid town covers (x, z), 0..1 (real maps; 0 on water, parks and airfields). */
+  /**
+   * How much street-grid town covers (x, z), 0..1 (real maps; 0 on water, parks and airfields).
+   * Terrain, trees, textures and the building placer ask this ~10^6 times per world, so it is
+   * computed once per terrain vertex and read back bilinearly.
+   */
   urbanGround(x, z) {
+    if (!this.zones) return 0;
+    const M = this.n, c = this.cell, N1 = M + 1;                         // one value per terrain vertex
+    if (!this._ug) {
+      const ug = new Float32Array(N1 * N1);
+      for (let j = 0; j < N1; j++) for (let i = 0; i < N1; i++) ug[j * N1 + i] = this.urbanGroundExact(i * c - this.half, j * c - this.half);
+      this._ug = ug;
+    }
+    const gx = Math.min(M - 1e-6, Math.max(0, (x + this.half) / c)), gz = Math.min(M - 1e-6, Math.max(0, (z + this.half) / c));
+    const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j, k = j * N1 + i, u = this._ug;
+    return (u[k] * (1 - fx) + u[k + 1] * fx) * (1 - fz) + (u[k + N1] * (1 - fx) + u[k + N1 + 1] * fx) * fz;
+  }
+
+  urbanGroundExact(x, z) {
     if (!this.zones || this.real.at(x, z) !== 1) return 0;
     let g = 0;
     for (const zn of this.zones) g = Math.max(g, this.zoneWeight(zn, x, z) * zn.ground);
