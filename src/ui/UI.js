@@ -84,9 +84,10 @@ export class UI {
 
     this.$('menu-help').innerHTML = this.isTouch
       ? `<b>Left thumb</b> flies (pull down = nose up) · <b>right slider</b> is the throttle, top = afterburner · drag the sky to look around · ` +
-        `<b>TGT</b> picks a target, hold it in front until the diamond closes, then <b>MSL</b> · stop on a runway to rearm`
+        `<b>TGT</b> picks a target, hold it in front until the diamond closes, then <b>MSL</b> · stop on a runway to rearm · ` +
+        `<b>LATCH</b> + <b>MSL</b> = missile motor stays on the rail as a rocket boost · <b>hold LATCH</b> (latches locked) = override the motor burn limiter: long burns, scorched wing, enough to reach space · <b>EJECT</b> twice to bail out`
       : `<b>W/S</b> pitch · <b>A/D</b> roll · <b>Q/E</b> rudder · <b>Shift/Ctrl</b> throttle (1-5 presets, 5 = afterburner) · <b>Space</b> gun · ` +
-        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view · <b>C</b> (hold) look at panel · <b>N</b> nav · right-drag look · <b>Esc</b> pause · gamepad supported`;
+        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · right-drag look · <b>Esc</b> pause · gamepad supported`;
 
     const on = (id, fn) => this.$(id).addEventListener('click', () => { this.audio.unlock(); this.audio.play('click'); fn(); });
     on('btn-fly', () => this.fly());
@@ -179,6 +180,7 @@ export class UI {
     const s = player.spec;
     this.show('btn-msl', s.missileCount > 0); this.show('btn-fire', s.gunAmmo > 0);
     this.show('btn-flare', s.flares > 0); this.show('btn-gear', s.gearH > 0);
+    this.show('btn-latch', s.missileCount > 0); this.show('btn-eject', s.cockpit !== 'airliner');
   }
 
   setFlightUi(on) {
@@ -249,11 +251,13 @@ export class UI {
         case 'KeyX': g.fireMissile(); break;
         case 'KeyT': case 'Tab': g.cycleTarget(); e.preventDefault(); break;
         case 'KeyN': g.cycleNav(); break;
+        case 'KeyJ': g.eject(); break;
+        case 'KeyH': g.latchPress(); break;
         case 'Space': e.preventDefault(); break;
         default:
       }
     });
-    document.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+    document.addEventListener('keyup', (e) => { this.keys[e.code] = false; if (e.code === 'KeyH') this.game.latchRelease(); });
     window.addEventListener('blur', () => { this.keys = {}; this.mouse.fire = false; });
 
     // click the view to capture the mouse as a stick; right-drag looks around
@@ -373,6 +377,9 @@ export class UI {
     tap('btn-gear', () => game.toggleGear());
     tap('btn-view', () => game.cycleView());
     tap('btn-nav', () => game.cycleNav());
+    tap('btn-eject', () => game.eject());
+    // LATCH: tap = pylon latches, hold ~1.5 s = lift the guard and override the motor burn limiter
+    hold('btn-latch', (v) => { if (v) game.latchPress(); else game.latchRelease(); });
     window.addEventListener('resize', () => { if (sid === null) home(); this.paintThrottle(); });
   }
 
@@ -483,6 +490,8 @@ export class UI {
       const edge = (i, fn) => { const d = on(i); if (d && !pv[i]) fn(); pv[i] = d; };
       edge(1, () => g.fireMissile()); edge(2, () => g.dropFlare()); edge(3, () => g.cycleTarget());
       edge(12, () => g.cycleView()); edge(13, () => g.toggleGear()); edge(9, () => this.togglePause());
+      edge(11, () => g.eject());
+      { const d = on(10); if (d && !pv[10]) g.latchPress(); else if (!d && pv[10]) g.latchRelease(); pv[10] = d; }   // L3: tap / hold like LATCH
     }
 
     const t0 = this.throttle;

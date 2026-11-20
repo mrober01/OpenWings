@@ -14,7 +14,12 @@ no internet: everything is procedural and the whole game builds into **one HTML 
 - **Flight model** with real g, energy bleed, stall, fly-by-wire assist; AI flies the same physics
 - **Fighter HUD** (pitch ladder, flight-path marker, target box, lead-computing gun sight, missile lock, ILS, moving-map radar)
 - **3D cockpit**, chase / padlock / fly-by / orbit views, drag to look around
-- Three 40 km maps — Nordic fjords, desert canyons, tropical islands — each with three airfields and a city; five times of day / weather; free flight can start from any airfield or airborne
+- Seven 40 km maps — three made-up worlds (Nordic fjords, desert canyons, tropical islands) and four real cities at 1:1 scale:
+  - **New York**: Manhattan's grid, Empire State, Chrysler, One WTC, Statue of Liberty, Brooklyn / Manhattan / Williamsburg / George Washington / Verrazzano bridges; from JFK, LaGuardia or Newark
+  - **Paris**: the Seine, Eiffel Tower (floodlit at night), Arc de Triomphe, Notre-Dame, Sacré-Cœur, the Louvre, Les Invalides, Montparnasse, La Défense and the Grande Arche, the Seine bridges; from Villacoublay, Orly or Charles de Gaulle
+  - **London**: the Thames, Westminster and Big Ben, the London Eye, Tower Bridge, the Shard, St Paul's, the Gherkin, Battersea, the O2, the Thames bridges; from RAF Northolt, Heathrow or London City
+  - **Rio de Janeiro**: real mountain terrain, Christ the Redeemer on Corcovado, Sugarloaf and its cable car, the Rio–Niterói bridge, Maracanã, Copacabana; from Afonsos AB, Galeão or Santos Dumont
+- Every map has three airfields and a city; five times of day / weather; free flight can start from any airfield or airborne
 - Solid, destructible cities: smash through houses (towers stop you), shoot buildings apart
 - Detailed airframes: panel seams and rivets, sky reflections on paint and canopies, pilots, visible missiles
 - Procedural sound, haptics, gamepad support
@@ -23,7 +28,7 @@ no internet: everything is procedural and the whole game builds into **one HTML 
 
 ```bash
 npm install
-npm run phone      # → dist/OpenWings.html  (one ~700 kB file, works offline)
+npm run phone      # → dist/OpenWings.html  (one ~1 MB file, works offline)
 ```
 
 Copy `dist/OpenWings.html` to the phone (USB, cloud drive, e-mail…) and open it in the
@@ -89,3 +94,7 @@ X flares, Y target, bumpers throttle, LT brake).
 ## License
 
 MIT, see `LICENSE`. Three.js (vendored) is MIT too. Everything else (terrain, aircraft, sounds) is generated in code.
+
+The real-city maps use coastlines, rivers, parks and runways from **© OpenStreetMap contributors**
+(ODbL, https://www.openstreetmap.org/copyright), and Rio's terrain from NASA SRTM via OpenTopoData,
+baked into `src/world/real/*.data.js` by `node tools/realmap.mjs <city>`.

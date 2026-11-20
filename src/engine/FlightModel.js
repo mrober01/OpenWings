@@ -23,6 +23,19 @@ const dq = new THREE.Quaternion();
 const gi = { y: 0, water: false, runway: false, slope: 0 };
 const gi2 = { y: 0, water: false, runway: false, slope: 0 };
 
+/**
+ * Air density relative to sea level. Troposphere: scale height 9 km; above the tropopause
+ * (11 km) the air thins faster (6.3 km scale height): ~0.07 at 20 km, ~0.015 at 30 km.
+ * Lift, drag, control authority and air-breathing thrust all fall with it.
+ */
+export function airDensity(y) {
+  if (y <= 0) return 1;
+  if (y < 11000) return Math.exp(-y / 9000);
+  return 0.2956 * Math.exp(-(y - 11000) / 6340);
+}
+/** Below this density an air-breathing jet flames out (~26.5 km); it relights under RELIGHT_RHO. */
+export const FLAMEOUT_RHO = 0.025, RELIGHT_RHO = 0.055;
+
 function liftCurve(x) {
   const ax = Math.abs(x);
   if (ax <= 1) return x;
@@ -68,6 +81,10 @@ export class FlightModel {
     this.wp = 0; this.wy = 0; this.wr = 0; // body rates: pitch-up, yaw-right, roll-right
     this.airbrake = 0;
     this.buffet = 0;
+    this.flameout = false;   // air-breathing engine died in the thin air (relights lower down)
+    this.boost = 0;          // external rocket thrust (m/s², along the nose) — hung missile motors
+    this.boostYaw = 0;       // yaw rate from asymmetric rocket thrust (rad/s, + = nose right)
+    this.rho = 1;
     this.events.length = 0;
   }
 
@@ -95,9 +112,15 @@ export class FlightModel {
     const hasAB = s.ab > 1;
     let power = hasAB ? Math.min(this.throttle / AB_DETENT, 1) : this.throttle;
     if (this.fuel <= 0) power = 0;
+    // jets need air: flame out near space, relight once back in thicker air
+    if (s.type === 'jet') {
+      if (!this.flameout && this.rho < FLAMEOUT_RHO) { this.flameout = true; this.events.push({ type: 'flameout' }); }
+      else if (this.flameout && this.rho > RELIGHT_RHO) { this.flameout = false; this.events.push({ type: 'relight' }); }
+      if (this.flameout) power = 0;
+    }
     const tau = s.type === 'prop' ? 0.5 : 1.3;
     this.thrEff += (power - this.thrEff) * Math.min(1, h / tau);
-    this.ab = hasAB && this.throttle > AB_DETENT + 0.02 && this.thrEff > 0.93 && this.fuel > 0;
+    this.ab = hasAB && this.throttle > AB_DETENT + 0.02 && this.thrEff > 0.93 && this.fuel > 0 && !this.flameout;
     this.fuel = Math.max(0, this.fuel - h * s.fuelBurn * (0.12 + this.thrEff) * (this.ab ? 3.2 : 1));
     this.gearPos += clamp((this.gearDown ? 1 : 0) - this.gearPos, -h / 2.5, h / 2.5);
   }
@@ -123,7 +146,7 @@ export class FlightModel {
     this.basis(obj.quaternion);
 
     const V = v.length();
-    const rho = Math.exp(-Math.max(pos.y, 0) / 9000);
+    const rho = this.rho = airDensity(pos.y);
     const flap = this.gearPos;
     const vs = s.vStall * (1 - 0.15 * flap);
     const qn = rho * (V / vs) * (V / vs);
@@ -152,7 +175,8 @@ export class FlightModel {
       // --- ground handling: direct rotation, nose-wheel steering ---
       const canRotate = V > 0.72 * vs;
       if (input.pitch > 0.05 && canRotate) wPitch = pitchAng < 0.21 ? input.pitch * 0.28 : 0;
-      else wPitch = clamp(-pitchAng * 2.5, -0.3, 0.3);
+      // taildraggers sit nose-high at rest and the tail comes up as the speed builds
+      else wPitch = clamp(((s.tailSit || 0) * (1 - clamp((V / vs - 0.3) / 0.3, 0, 1)) - pitchAng) * 2.5, -0.3, 0.3);
       wRoll = clamp(-bank * 6, -2, 2);
       const steer = clamp(input.yaw + input.roll, -1, 1);
       wYaw = steer * 0.55 * clamp(V / 6, 0, 1) * (22 / Math.max(V, 22));
@@ -194,7 +218,7 @@ export class FlightModel {
         if (!this._stallDir) this._stallDir = Math.random() < 0.5 ? -1 : 1;
         wRoll += this._stallDir * 0.9;
       } else this._stallDir = 0;
-      wYaw = input.yaw * 0.35 * auth + clamp(beta, -0.5, 0.5) * 3.2 * Math.max(authR, 0.15);
+      wYaw = input.yaw * 0.35 * auth + clamp(beta, -0.5, 0.5) * 3.2 * Math.max(authR, 0.15) + this.boostYaw;
     }
 
     const kr = Math.min(1, h / 0.09);
@@ -212,7 +236,7 @@ export class FlightModel {
     const side = -G * Math.min(qn, 6) * clamp(beta, -0.4, 0.4) * 1.6;
     const T = this.thrustAt(V, this.thrEff, rho, this.ab) * this.engineHealth;
 
-    v.addScaledVector(fwd, T * h);
+    v.addScaledVector(fwd, (T + this.boost) * h);
     v.addScaledVector(liftDir, L * h);
     v.addScaledVector(vhat, -D * h);
     v.addScaledVector(right, side * h);
@@ -221,7 +245,7 @@ export class FlightModel {
 
     // --- ground contact ---
     env.ground(pos.x, pos.z, gi);
-    const gearH = s.bellyH + s.gearH * this.gearPos;
+    const gearH = s.bellyH + s.gearH * this.gearPos - (s.tailSit ? s.sitDrop * clamp(pitchAng / s.tailSit, 0, 1) * this.gearPos : 0);
     const floor = gi.y + gearH;
     if (pos.y <= floor + 0.02) {
       if (!this.onGround) {
@@ -268,7 +292,7 @@ export class FlightModel {
     this.systems(input, h);
     this.basis(obj.quaternion);
     const V = v.length();
-    const rho = Math.exp(-Math.max(pos.y, 0) / 9000);
+    const rho = this.rho = airDensity(pos.y);
     const bank = Math.atan2(-right.y, up.y);
     const pitchAng = Math.asin(clamp(fwd.y, -1, 1));
 
@@ -283,6 +307,7 @@ export class FlightModel {
 
     const T = G * (0.3 + 1.4 * this.thrEff) * rho * this.engineHealth * (this.fuel > 0 ? 1 : 0.4);
     v.addScaledVector(up, T * h);
+    v.addScaledVector(fwd, this.boost * h);
     v.y -= G * h;
     const cdh = G * 0.6 / (s.vMax * s.vMax);
     v.addScaledVector(v, -(cdh * V + 0.03) * h);

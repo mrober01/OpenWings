@@ -70,7 +70,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 
 #btns {
   position: absolute; right: calc(70px + var(--sr)); bottom: calc(12px + var(--sb));
-  display: grid; grid-template-columns: repeat(3, 58px); grid-auto-rows: auto; gap: 6px;
+  display: grid; grid-template-columns: repeat(3, 58px); grid-auto-rows: auto; grid-auto-flow: row dense; gap: 6px;
 }
 .tbtn {
   height: 52px; border-radius: 10px; font-size: 13px; font-weight: bold; letter-spacing: 1px;
@@ -78,6 +78,7 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 }
 .tbtn.sm { height: 44px; font-size: 11px; opacity: 0.85; }
 .tbtn.gun { grid-column: span 2; height: 60px; font-size: 16px; color: var(--amber); border-color: rgba(255, 197, 49, 0.7); }
+.tbtn.eject { color: #ffd23a; border-color: rgba(255, 210, 58, 0.8); background: repeating-linear-gradient(45deg, rgba(40, 32, 0, 0.55) 0 6px, rgba(90, 70, 0, 0.45) 6px 12px); }
 .tbtn:active, .tbtn.down { background: rgba(61, 255, 114, 0.35); }
 .tbtn.gun.down { background: rgba(255, 197, 49, 0.4); }
 #btn-brake { height: 60px; }

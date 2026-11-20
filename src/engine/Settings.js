@@ -2,7 +2,7 @@
 const KEY = 'openwings.v2';
 
 export const OPTIONS = {
-  map: { label: 'MAP', values: ['nordic', 'desert', 'tropic'], names: ['NORDIC FJORDS', 'DESERT CANYONS', 'TROPICAL ISLANDS'] },
+  map: { label: 'MAP', values: ['nordic', 'desert', 'tropic', 'nyc', 'paris', 'london', 'rio'], names: ['NORDIC FJORDS', 'DESERT CANYONS', 'TROPICAL ISLANDS', 'NEW YORK CITY', 'PARIS', 'LONDON', 'RIO DE JANEIRO'] },
   // free-flight start: home / civil / enemy airfield of the current map, or airborne near its city
   // (the menu shows the current map's names; these are the fallbacks)
   start: { label: 'FREE FLIGHT START', values: ['valhall', 'nordvik', 'redkeep', 'air'], names: ['HOME BASE', 'CIVIL AIRPORT', 'ENEMY FIELD', 'AIRBORNE · OVER CITY'] },

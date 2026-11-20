@@ -15,6 +15,22 @@ import { Hud } from '../ui/Hud.js';
 import { Cockpit } from '../aircraft/Cockpit.js';
 import { AIPilot } from './AIPilot.js';
 import { clamp } from './utils.js';
+import { Ejection } from './Ejection.js';
+
+// hung-missile "hack": a motor fired with the pylon latches locked stays on the rail and pushes
+// stock: a short kick. 'extended' (burn limiter overridden in flight — hold LATCH): the motor runs its whole
+// grain at full chamber pressure, a little stronger in vacuum like any rocket, and scorches the wing.
+// A full load fired one after another in a steep zoom can reach 100 km.
+const MOTORS = {
+  stock: { burn: MISSILE.burn * 1.5, accel: 0.85 * 9.81, vac: 0, heat: 0 },
+  extended: { burn: 7, accel: 2 * 9.81, vac: 0.15, heat: 0.5 },
+};
+const OVRD_HOLD = 1.5, GUARD_T = 0.4;   // s: hold LATCH this long to throw the override; the guard lifts first
+const HUNG_YAW = 0.045;
+const ALT_BANDS = [[11000, 'STRATOSPHERE · THIN AIR — LESS LIFT, LESS THRUST', 'warn'], [20000, 'NEAR SPACE · THE SKY IS GOING BLACK', 'warn'],
+  [30000, 'EDGE OF SPACE', 'warn'], [50000, 'MESOSPHERE · NO AIR LEFT TO STEER WITH', 'warn'],
+  [100000, 'SPACE! ABOVE THE KÁRMÁN LINE · 100 KM', 'good']];
+const PILOTLESS = { pitch: -0.12, roll: 0.18, yaw: 0, throttle: 0, fire: false, brake: false };
 
 const G = 9.81, TAU = Math.PI * 2;
 const GUN_RANGE = 1500;
@@ -81,8 +97,11 @@ export class Game {
     this.time = 0; this.score = 0; this.kills = 0; this.wave = 0;
     this.waypoint = null; this.navField = null; this.target = null; this.lock = 0;
     this.result = null; this.endT = 0; this.gloc = 0; this._rearm = 0;
+    this.clearEjection();
+    this.latch = false; this.override = false; this._scorchSaid = false; this._latchDown = null; this.guard = 0; this._altBand = 0; this._ejectArm = -9; this._peak = 0; this._reentry = false;
 
     const p = makeAircraft(aircraftKey, 0, { player: true, assist: s.get('assist') });
+    p.hung = [];
     this.player = p;
     this.scene.add(p.obj);
     this.units.push(p);
@@ -90,6 +109,8 @@ export class Game {
     if (this.cockpit) this.cockpit.dispose();
     this.cockpit = new Cockpit(p.spec);
     this.engine.setCockpit(this.cockpit.group, this.env);
+    this.cockpit.setNight(!!this.env.atmo.night);
+    this.cockpit.setSun(this.env.sunDir);
 
     this.mission = MISSIONS[this.mode].create(this);
     this.count();
@@ -175,6 +196,7 @@ export class Game {
 
   toMenu() {
     this.state = 'menu';
+    this.clearEjection();
     this.audio.stopFlight();
     this.hud.clear();
     this.cam.fov = 0;   // force the rig to restore its FOV after the hangar camera
@@ -296,7 +318,7 @@ export class Game {
 
   /* ================================================================ player actions (called by UI) */
 
-  get flying() { return this.state === 'playing' && this.player && this.player.alive; }
+  get flying() { return this.state === 'playing' && this.player && this.player.alive && !this.ejection; }
 
   toggleGear() {
     if (!this.flying) return;
@@ -317,9 +339,98 @@ export class Game {
     const p = this.player;
     if (!this.flying) return;
     if (p.missiles <= 0) { if (p.spec.missileCount) this.say('NO MISSILES', 'warn'); return; }
+    if (this.latch) { this.hangFire(p); return; }
     const t = this.lock >= 1 && this.target && this.target.alive ? this.target : null;
     if (!t && this.target) { this.say('NO LOCK', 'warn'); return; }
     if (this.launch(p, t)) this.say(t ? 'FOX 2' : 'MISSILE AWAY (UNGUIDED)');
+  }
+
+  /** Lock / unlock the pylon release latches (the "hung missile booster" hack). */
+  toggleLatch() {
+    const p = this.player;
+    if (!this.flying || !p.spec.missileCount) return;
+    this.latch = !this.latch;
+    this.audio.play('click');
+    if (!this.latch && this.override) { this.override = false; this.say('PYLON LATCHES NORMAL · BURN LIMITER RESET'); return; }
+    this.say(this.latch ? 'PYLON LATCHES LOCKED · MSL = ROCKET BOOST · HOLD LATCH FOR LIMITER OVERRIDE' : 'PYLON LATCHES NORMAL', this.latch ? 'warn' : '');
+  }
+
+  /** LATCH control pressed (key H, touch LATCH, pad L3): a tap toggles the latches, a hold throws the override. */
+  latchPress() {
+    if (!this.flying || !this.player.spec.missileCount || this._latchDown !== null) return;
+    this._latchDown = this.time; this._latchDone = false;
+  }
+
+  latchRelease() {
+    if (this._latchDown === null) return;
+    const held = this.time - this._latchDown;
+    this._latchDown = null;
+    if (!this._latchDone && held < GUARD_T) this.toggleLatch();
+    else if (!this._latchDone && this.flying) this.say('GUARD DOWN · LIMITER NOT CHANGED');
+  }
+
+  /** Called every frame: a held LATCH lifts the switch guard, then flips MSL BURN LIMIT NORM <-> OVRD. */
+  updateLatch() {
+    const down = this._latchDown !== null && this.flying;
+    const held = down ? this.time - this._latchDown : 0;
+    if (down && !this._latchDone && held >= GUARD_T && !this._guardUp) {
+      this._guardUp = true;
+      this.audio.play('click');
+      if (!this.latch) { this._latchDone = true; this.say('LOCK THE PYLON LATCHES FIRST (TAP LATCH)', 'warn'); }
+      else this.say(this.override ? 'GUARD UP · KEEP HOLDING TO RESET THE LIMITER' : 'GUARD UP · KEEP HOLDING TO OVERRIDE THE BURN LIMITER', 'warn');
+    }
+    if (down && !this._latchDone && this.latch && held >= OVRD_HOLD) {
+      this._latchDone = true;
+      this.override = !this.override;
+      this.audio.play('gear');
+      this.say(this.override ? 'MSL BURN LIMIT · OVRD — MOTORS RUN THEIR FULL GRAIN (7 s), WING WILL SCORCH' : 'MSL BURN LIMIT · NORM', this.override ? 'danger' : '');
+    }
+    if (!down) this._guardUp = false;
+    // switch guard animation for the cockpit: follows the hold, stays up while overridden
+    const want = this.override ? 1 : down && this.latch && !this._latchDone ? clamp((held - 0.1) / (GUARD_T - 0.1), 0, 1) : 0;
+    this.guard += (want - this.guard) * Math.min(1, this.dtLast * 10 || 1);
+  }
+
+  /** Light a missile motor that cannot leave the rail: a few seconds of extra thrust. */
+  hangFire(p) {
+    if (p.missiles <= 0) { this.say('NO MISSILES', 'warn'); return; }
+    p.missiles--;
+    const side = (p.pylon++ & 1) ? 1 : -1;
+    const m = this.override ? MOTORS.extended : MOTORS.stock;
+    p.hung.push({ t: 0, side, trail: 0, burn: m.burn, accel: m.accel, vac: m.vac, heat: m.heat });
+    this.audio.play('missile');
+    this.cam.shake = Math.max(this.cam.shake, 0.8);
+    this.say(p.hung.length > 1 ? `${p.hung.length} MOTORS BURNING ON THE RAILS!` : 'MOTOR LIT ON THE RAIL — HANG ON!', 'warn');
+  }
+
+  /** Eject (rocket seat) or bail out. Needs a second press within 1.5 s so it is never an accident. */
+  eject() {
+    const p = this.player;
+    if (!this.flying || this.ejection) return;
+    if (p.spec.cockpit === 'airliner') { this.say('NO EJECTION SEAT IN AN AIRLINER', 'warn'); return; }
+    if (this.time - this._ejectArm > 1.5) {
+      this._ejectArm = this.time;
+      this.audio.play('warn');
+      this.say('EJECT? PRESS AGAIN TO PULL THE HANDLE', 'danger');
+      return;
+    }
+    const rocket = p.spec.cockpit === 'fighter';
+    this.ejection = new Ejection(this.scene, this.effects, p, rocket);
+    if (p.obj.userData.glass) p.obj.userData.glass.visible = false;
+    p.hung.length = 0; p.fm.boost = 0; p.fm.boostYaw = 0;
+    this.audio.play(rocket ? 'missile' : 'gear');
+    this.audio.stopFlight();
+    this.hud.clear();
+    this.cam.shake = 1;
+    if (this.cam.view === 'cockpit' || this.cam.view === 'target') this.cam.setView('chase');
+    if (!this.result) {
+      this.finish(false, rocket ? 'EJECTED' : 'BAILED OUT', 'Pilot safe under the canopy · aircraft lost');
+      this.endT = 9;
+    }
+  }
+
+  clearEjection() {
+    if (this.ejection) { this.ejection.dispose(); this.ejection = null; }
   }
 
   cycleTarget() {
@@ -386,6 +497,7 @@ export class Game {
     if (this.state === 'playing' && this.ui) input = this.ui.getInput();
     else NEUTRAL.throttle = p.fm.throttle;
     if (this.autopilot && p.alive && this.state === 'playing') input = this.autoInput(dt);
+    if (this.ejection) { PILOTLESS.throttle = p.fm.throttle; input = PILOTLESS; this.ejection.update(dt, env); }
 
     if (p.alive) this.updatePlayer(p, input, dt);
     this.updateAI(dt);
@@ -409,12 +521,12 @@ export class Game {
       const c = this.cam, k = Math.min(1, dt * 8);
       c.lookPitch += (-0.62 - c.lookPitch) * k; c.lookYaw -= c.lookYaw * k; c.lookIdle = 0;
     }
-    this.cam.update(dt, p, env, this.target);
+    this.cam.update(dt, this.ejection || p, env, this.target);
     // cockpit view: the airframe stays visible (you see your own wings and nose from
     // inside; the fuselage around you is back-face culled), the interior is a 2nd pass
-    const inPit = this.cam.view === 'cockpit' && p.alive;
+    const inPit = this.cam.view === 'cockpit' && p.alive && !this.ejection;
     p.obj.visible = p.alive || !!p.wreck;
-    if (p.obj.userData.glass) p.obj.userData.glass.visible = !inPit;
+    if (p.obj.userData.glass) p.obj.userData.glass.visible = !inPit && !this.ejection;
     this.engine.pitOn = inPit;
     if (inPit) {
       // camera-relative: the cockpit sits at the origin so 5 cm detail survives float precision
@@ -424,7 +536,7 @@ export class Game {
     }
     env.update(dt, this.engine.camera.position);
 
-    if (this.state === 'playing') {
+    if (this.state === 'playing' && !this.ejection) {
       this.fillHud(input);
       this.hud.draw(this.hs);
       this.drawGlare(dt);
@@ -459,9 +571,37 @@ export class Game {
 
   updatePlayer(p, input, dt) {
     const fm = p.fm, env = this.env;
+    // hung missile motors: rocket thrust (works in thin air too), yawing away from the burning side
+    fm.boost = 0; fm.boostYaw = 0;
+    for (let i = p.hung.length - 1; i >= 0; i--) {
+      const h = p.hung[i];
+      h.t += dt;
+      if (h.t > h.burn) { p.hung.splice(i, 1); if (!p.hung.length && !this.ejection) this.say('MOTORS BURNT OUT'); continue; }
+      fm.boost += h.accel * (1 + h.vac * (1 - Math.min(1, fm.rho))); fm.boostYaw -= h.side * HUNG_YAW;
+      // an overridden motor burning on the rail cooks the wing (never below a quarter of the hull)
+      if (h.heat && p.hp > p.maxHp * 0.25) {
+        p.hp = Math.max(p.maxHp * 0.25, p.hp - h.heat * dt);
+        if (!this._scorchSaid) { this._scorchSaid = true; this.say('WING SCORCHING · PYLON OVERHEAT', 'warn'); }
+      }
+    }
+    this.dtLast = dt;
+    this.updateLatch();
+    if (p.hung.length) this.cam.shake = Math.max(this.cam.shake, 0.3);
     fm.step(p.obj, input, dt, env);
+    // climbing out of the atmosphere
+    if (!this.ejection) {
+      const y = p.pos.y;
+      while (this._altBand < ALT_BANDS.length && y > ALT_BANDS[this._altBand][0]) { const b = ALT_BANDS[this._altBand++]; this.say(b[1], b[2]); }
+      while (this._altBand > 0 && y < ALT_BANDS[this._altBand - 1][0] - 1500) this._altBand--;
+      // coming back down from very high: the air arrives all at once
+      this._peak = Math.max(this._peak || 0, y);
+      if (this._peak > 60000 && y < 35000 && fm.vs < -400 && !this._reentry) { this._reentry = true; this.say('REENTRY · AIR IS BACK — PULL OUT!', 'danger'); this.audio.play('warn'); }
+      if (y < 15000) { this._peak = y; this._reentry = false; }
+    }
     for (const ev of fm.events) {
       if (ev.type === 'touchdown') this.onTouchdown(p, ev);
+      else if (ev.type === 'flameout') { if (!this.ejection) { this.say('ENGINE FLAMEOUT — NOT ENOUGH AIR TO BREATHE', 'danger'); this.audio.play('warn'); } }
+      else if (ev.type === 'relight') { if (!this.ejection) this.say('ENGINE RELIGHT', 'good'); }
       else if (ev.type === 'crash') {
         fm.events.length = 0;
         this.crashPlayer(CRASH_TEXT[ev.reason] || 'CRASHED', ev.reason === 'water');
@@ -486,7 +626,7 @@ export class Game {
     } else this._rearm = 0;
 
     // gun
-    if (input.fire && p.gun > 0 && this.state === 'playing') {
+    if (input.fire && p.gun > 0 && this.state === 'playing' && !this.ejection) {
       this.fireGun(p, dt, 0.0035);
       this.cam.shake = Math.max(this.cam.shake, 0.35);
       p.firing = true;
@@ -715,7 +855,7 @@ export class Game {
     // blast damage to buildings
     for (const b of this.env.buildingsNear(pos.x, pos.z, 24 * size, _nearB)) {
       if (pos.y > b.top + 15) continue;
-      const d = Math.max(Math.abs(pos.x - b.x) - b.hw, Math.abs(pos.z - b.z) - b.hd, 0);
+      const d = this.env.footDist(b, pos.x, pos.z);
       this.damageStructure(b, 140 * size * (1 - d / (24 * size + 1)), null);
     }
     // splash damage to soft ground targets
@@ -853,8 +993,8 @@ export class Game {
       const a = u.anim;
       a.time = this.time; a.gearPos = fm.gearPos; a.thrEff = fm.thrEff; a.ab = fm.ab;
       a.pitch = input.pitch; a.roll = input.roll; a.yaw = input.yaw;
-      a.airbrake = fm.airbrake; a.speed = fm.speed; a.night = !!this.env.atmo.night;
-      a.missiles = u.missiles;
+      a.airbrake = fm.airbrake; a.speed = fm.speed; a.night = !!this.env.atmo.night; a.onGround = fm.onGround;
+      a.missiles = u.missiles + (u.hung ? u.hung.length : 0);
       ud.update(dt, a);
       return;
     }
@@ -897,6 +1037,15 @@ export class Game {
           if (frac < 0.18 && Math.random() < 0.5) fx.flame(_a, u.vel, 1);
         }
       }
+      // hung missile motors: flame + smoke off the pylon
+      if (u.hung && u.hung.length) {
+        for (const h of u.hung) {
+          _a.set(h.side * u.radius * 0.35, -u.radius * 0.14 - 0.6, 2.2).applyQuaternion(q).add(pos);
+          fx.flame(_a, u.vel, 0.7);
+          h.trail += fm.speed * dt;
+          while (h.trail > 9) { h.trail -= 9; fx.missileSmoke(_a, u.vel); }
+        }
+      }
       // contrails up high, vapour off the wingtips under g
       if (pos.y > 2800 && fm.thrEff > 0.5 && u.spec.type === 'jet') {
         u.trail += fm.speed * dt;
@@ -915,6 +1064,41 @@ export class Game {
       }
     }
     fx.endShadows();
+    this.updateLandingLight();
+  }
+
+  /** Pool of light the landing lamp throws on the ground ahead (dusk / night, gear down, low). */
+  updateLandingLight() {
+    const p = this.player, env = this.env, atmo = env.atmo;
+    const k = atmo.night ? 1 : atmo.sunElev < 12 ? 0.45 : atmo.sunI < 1.5 ? 0.25 : 0;
+    let lp = this.lightPool;
+    const on = k > 0 && p && p.alive && p.fm.gearPos > 0.9 && p.spec.type !== 'heli' && p.fm.altitudeAGL < 90;
+    if (!on) { if (lp) lp.visible = false; return; }
+    if (!lp) {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
+      lp = this.lightPool = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        map: new THREE.CanvasTexture(c), color: new THREE.Color(1.0, 0.94, 0.8), transparent: true, blending: THREE.AdditiveBlending,
+        depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12,
+      }));
+      lp.renderOrder = 2;
+      this.scene.add(lp);
+    }
+    // the beam points 7 degrees below the nose; where it meets the ground
+    _f.set(0, -0.12, -1).normalize().applyQuaternion(p.obj.quaternion);
+    const agl = p.fm.altitudeAGL + p.spec.gearH * 0.5;
+    const d = _f.y < -0.02 ? Math.min(agl / -_f.y, 260) : 260;
+    const x = p.pos.x + _f.x * d, z = p.pos.z + _f.z * d;
+    env.ground(x, z, gi);
+    const far = clamp(1.25 - d / 220, 0, 1);
+    lp.visible = far > 0.02;
+    lp.position.set(x, gi.y + 0.35, z);
+    lp.rotation.y = Math.atan2(-_f.x, -_f.z);
+    lp.scale.set(12 + d * 0.2, 1, 18 + d * 0.6);
+    lp.material.opacity = k * far * 0.4;
   }
 
   /* ================================================================ HUD + audio state */
@@ -960,6 +1144,8 @@ export class Game {
     o.fuel = fm.fuel; o.hp = clamp(p.hp / p.maxHp, 0, 1);
     o.gearDown = fm.gearDown; o.gearPos = fm.gearPos; o.onGround = fm.onGround; o.stalled = fm.stalled;
     o.airbrake = fm.airbrake; o.isHeli = sp.type === 'heli';
+    o.flameout = fm.flameout; o.rho = fm.rho;
+    s.latch = !!this.latch; s.boost = p.hung ? p.hung.length : 0; s.override = !!this.override; s.guard = this.guard;
     s.input.pitch = input.pitch; s.input.roll = input.roll; s.input.yaw = input.yaw;
 
     const w = s.weapons;
@@ -1097,7 +1283,15 @@ export class Game {
       d[k] = r; d[k + 1] = g; d[k + 2] = b; d[k + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
-    if (hf.city) { ctx.fillStyle = 'rgba(190,190,200,0.8)'; ctx.fillRect((hf.city.x + half) / step - 4, (hf.city.z + half) / step - 4, 8, 8); }
+    if (hf.city && hf.zones) {
+      // real maps: the built-up area as a grey wash
+      const g = ctx.getImageData(0, 0, N, N), gd = g.data;
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const u = hf.urbanGround((i + 0.5) * step - half, (j + 0.5) * step - half) * 0.7, k = (j * N + i) * 4;
+        if (u > 0) { gd[k] += (150 - gd[k]) * u; gd[k + 1] += (150 - gd[k + 1]) * u; gd[k + 2] += (156 - gd[k + 2]) * u; }
+      }
+      ctx.putImageData(g, 0, 0);
+    } else if (hf.city) { ctx.fillStyle = 'rgba(190,190,200,0.8)'; ctx.fillRect((hf.city.x + half) / step - 4, (hf.city.z + half) / step - 4, 8, 8); }
     this.hs.map.canvas = c;
     this.hs.map.airfields = this.env.airfields;
   }

@@ -7,12 +7,13 @@
 //   vMax       sea-level top speed at full power (incl. afterburner)
 //   kn         induced-drag factor (drag in g at CLmax); lower = better glide / sustained turn
 //   alphaStall critical angle of attack
+//   tailSit    taildraggers: nose-up angle at rest (rad); sitDrop = how far the origin sinks in that attitude
 // The flight model derives its zero-lift drag from twr/vMax so every aircraft
 // tops out where the spec says it should.
 
 const base = {
   type: 'jet', ab: 1, gMax: 9, gNeg: 3, rollRate: 3.5, pitchRate: 1.0, kn: 0.15,
-  alphaStall: 0.30, fbw: false, crashSink: 7, gearH: 2.0, bellyH: 1.0, propVp: 50,
+  alphaStall: 0.30, fbw: false, crashSink: 7, gearH: 1.4, bellyH: 1.0, propVp: 50,
   fuelBurn: 0.085, gunAmmo: 0, gunRate: 0.06, gunDmg: 12, missileCount: 0, flares: 0,
   armor: 100, engines: 1, playable: true, eye: [0, 1.15, -3.2], cockpit: 'fighter',
 };
@@ -34,7 +35,7 @@ const defs = {
     name: 'Su-35 Flanker-E', short: 'SU-35', faction: 'military', role: 'Supermaneuverable heavy fighter',
     vStall: 58, vMax: 420, twr: 0.84, ab: 1.5, gMax: 9, rollRate: 3.6, kn: 0.14, alphaStall: 0.5, fbw: true,
     gunAmmo: 300, gunRate: 0.05, gunDmg: 16, missileCount: 10, flares: 20, armor: 150, engines: 2,
-    stats: { speed: 92, agility: 97, armor: 75, firepower: 96 }, eye: [0, 1.5, -6.0],
+    stats: { speed: 92, agility: 97, armor: 75, firepower: 96 }, eye: [0, 1.5, -6.0], gearH: 1.7,
   },
   mig29: {
     name: 'MiG-29 Fulcrum', short: 'MIG-29', faction: 'military', role: 'Nimble point-defence fighter',
@@ -46,7 +47,7 @@ const defs = {
     name: 'A-10 Thunderbolt II', short: 'A-10', faction: 'military', role: 'Armoured tank-buster with the 30 mm GAU-8',
     vStall: 52, vMax: 195, twr: 0.38, gMax: 7.3, rollRate: 1.9, pitchRate: 0.8, kn: 0.085, alphaStall: 0.3,
     gunAmmo: 1150, gunRate: 0.03, gunDmg: 22, missileCount: 6, flares: 24, armor: 260, engines: 2, crashSink: 8,
-    stats: { speed: 45, agility: 60, armor: 100, firepower: 100 }, eye: [0, 1.3, -4.4],
+    stats: { speed: 45, agility: 60, armor: 100, firepower: 100 }, eye: [0, 1.3, -4.4], gearH: 1.6,
   },
   mi24: {
     name: 'Mi-24 Hind', short: 'MI-24', faction: 'military', role: 'Attack helicopter gunship — hovers',
@@ -57,19 +58,19 @@ const defs = {
   spitfire: {
     name: 'Supermarine Spitfire', short: 'SPITFIRE', faction: 'warbird', role: 'WWII legend — guns only, turns on a sixpence',
     type: 'prop', vStall: 34, vMax: 165, twr: 0.45, propVp: 62, gMax: 7.5, rollRate: 2.3, pitchRate: 1.0, kn: 0.075,
-    gunAmmo: 500, gunRate: 0.05, gunDmg: 8, armor: 90, gearH: 1.6, bellyH: 0.9, fuelBurn: 0.05,
+    gunAmmo: 500, gunRate: 0.05, gunDmg: 8, armor: 90, gearH: 0.85, bellyH: 0.9, tailSit: 0.2, sitDrop: 0.34, fuelBurn: 0.05,
     stats: { speed: 40, agility: 88, armor: 45, firepower: 55 }, eye: [0, 0.95, 0.2], cockpit: 'prop',
   },
   c172: {
     name: 'Cessna 172 Skyhawk', short: 'C172', faction: 'civilian', role: 'Gentle trainer — perfect for sightseeing',
     type: 'prop', vStall: 25, vMax: 64, twr: 0.34, propVp: 35, gMax: 3.8, rollRate: 1.3, pitchRate: 0.7, kn: 0.08,
-    armor: 60, gearH: 1.3, bellyH: 0.7, crashSink: 5, fuelBurn: 0.03,
+    armor: 60, gearH: 1.0, bellyH: 0.7, crashSink: 5, fuelBurn: 0.03,
     stats: { speed: 15, agility: 55, armor: 30, firepower: 0 }, eye: [-0.25, 0.75, -0.6], cockpit: 'prop',
   },
   a320: {
     name: 'Airbus A320', short: 'A320', faction: 'civilian', role: 'Twin-jet airliner — heavy and stately',
     vStall: 62, vMax: 255, twr: 0.33, gMax: 2.5, gNeg: 1, rollRate: 0.5, pitchRate: 0.28, kn: 0.06, alphaStall: 0.26, fbw: true,
-    armor: 220, gearH: 3.4, bellyH: 2.1, crashSink: 5.5, engines: 2, fuelBurn: 0.03,
+    armor: 220, gearH: 2.1, bellyH: 2.1, crashSink: 5.5, engines: 2, fuelBurn: 0.03,
     stats: { speed: 60, agility: 20, armor: 70, firepower: 0 }, eye: [-0.5, 1.0, -15.6], cockpit: 'airliner',
   },
   // AI-only

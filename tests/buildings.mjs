@@ -1,5 +1,5 @@
 // buildings.mjs — headless check that buildings are solid: fly a jet into a house (it breaks,
-// the jet survives), into a tower (crash), and shoot an office (it breaks up). All three maps.
+// the jet survives), into a tower (crash), and shoot an office (it breaks up). Every map (or --map=key).
 //   node tests/buildings.mjs [--dist]
 import http from 'node:http';
 import fs from 'node:fs';
@@ -7,12 +7,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { MAP_ORDER } from '../src/world/Maps.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const useDist = args.includes('--dist');
 const wanted = args.filter(a => !a.startsWith('--'));
-const MAP = (args.find(a => a.startsWith('--map=')) || '--map=nordic').slice(6);
+const MAP = (args.find(a => a.startsWith('--map=')) || '').slice(6);   // default: every map
 const RUNS = [
   ['free', 'ef2000', 60], ['dogfight', 'ef2000', 240], ['strike', 'a10', 200], ['intercept', 'f22', 300],
   ['waves', 'su35', 240], ['landing', 'c172', 60], ['dogfight', 'spitfire', 120], ['free', 'mi24', 40],
@@ -62,7 +63,7 @@ const AIM = `window.__aim = (b, dist, frac, above = 0) => {
 };
 window.__until = (s, fn) => { const g = __game; for (let t = 0; t < s && g.state === 'playing' && !fn(); t += 1 / 60) g.update(1 / 60); };
 window.__step = (s, fire) => { const g = __game; for (let t = 0; t < s && g.state === 'playing'; t += 1 / 60) { g.ui.keys.Space = !!fire; g.update(1 / 60); } g.ui.keys.Space = false; };`;
-for (const map of ['nordic', 'desert', 'tropic']) {
+for (const map of MAP ? [MAP] : MAP_ORDER) {
   console.log(`\n== ${map}`);
   const page = await browser.newPage();
   const errors = [];

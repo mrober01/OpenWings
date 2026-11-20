@@ -30,6 +30,7 @@ Everything that can be shot at or shown on radar.
   obj: THREE.Object3D | null,
   spec, fm, ai,              // aircraft only (AircraftSpecs entry, FlightModel, AIPilot)
   isPlayer: false,
+  hung: [{ t, side, trail }],  // player only: missile motors burning on locked pylon latches (Game.hangFire)
 }
 ```
 
@@ -102,7 +103,10 @@ hud.clear()
     g, gMax, aoa, aoaMax,
     throttle, thrEff, ab, hasAB, fuel /*0..100*/, hp /*0..1*/,
     gearDown, gearPos, onGround, stalled, airbrake, isHeli,
+    flameout, rho,              // jet flamed out in thin air; air density relative to sea level
   },
+  latch, boost,                 // pylon latches locked (bool); number of hung motors burning
+  override, guard,              // MSL BURN LIMIT switch in OVRD (bool); its guard 0 closed .. 1 up
   input: { pitch, roll, yaw },  // current stick (cockpit animates the stick with it)
   weapons: { gun, gunMax, missiles, missilesMax, flares, hasGun, hasMissiles, gunRange /*m*/, missileRange /*m*/ },
   target: null | {
@@ -132,7 +136,8 @@ hud.clear()
 ```js
 const cockpit = new Cockpit(spec)        // spec = AIRCRAFT_SPECS entry; spec.cockpit ∈ 'fighter'|'prop'|'heli'|'airliner'
 cockpit.group                            // Object3D in AIRCRAFT-LOCAL coordinates (pilot's eye is at spec.eye)
-cockpit.update(dt, s)                    // s = the HudState above (live MFDs, moving stick/throttle, gauges)
+cockpit.update(dt, s)                    // s = the HudState above (live MFDs, moving stick/throttle, pedals, gear handle, annunciators)
+cockpit.setNight(on); cockpit.setSun(dir) // panel flood / HUD + canopy glass; world sun direction for the canopy glint
 cockpit.dispose()
 ```
 
@@ -142,6 +147,28 @@ Game sets `group.quaternion` to the aircraft attitude and `engine.pitCam.positio
 rotated eye offset, with no world translation, so 5 cm detail survives float precision
 20 km from the origin. The HUD canvas is drawn on top; the cockpit must leave the
 forward view through the HUD glass clear.
+
+## Altitude, ejection, hung-missile boost
+
+- `FlightModel.airDensity(y)`: troposphere scale height 9 km, faster thinning above 11 km. Lift, drag,
+  control authority and jet thrust (ρ^0.7) all follow it; jets flame out below `FLAMEOUT_RHO` (~26.5 km)
+  and relight under `RELIGHT_RHO` (~21 km), pushing `flameout` / `relight` events.
+  `fm.boost` (m/s² along the nose) and `fm.boostYaw` (rad/s) are external rocket inputs, zero by default.
+- Sky: `Environment.update` sets `space` 0..1 from camera height (8 → 38 km) → sky shader `uSpace`:
+  zenith to black, thinner horizon band, daytime stars, no cirrus.
+- `Game.eject()` (J, twice within 1.5 s; touch EJECT; pad R3): `engine/Ejection.js` — canopy + rocket seat
+  (fighter cockpits) or bail-out (prop / heli), seat separation, parachute. The instance is a camera unit
+  (`{obj, pos, vel, radius, spec}`); the abandoned aircraft flies on with a slack stick until it crashes.
+- LATCH control (H; touch LATCH; pad L3) → `Game.latchPress()` / `latchRelease()`: a tap (< 0.4 s) is
+  `toggleLatch()`; with the latches locked, a hold lifts the guard (`s.guard` 0..1) and at 1.5 s flips the
+  MSL BURN LIMIT switch NORM ↔ OVRD (`Game.override`, `s.override`; reset when the latches are unlocked).
+  Then `fireMissile()` = `hangFire()`: the motor stays on the rail adding thrust plus a yaw away from the
+  burning side. `MOTORS` in Game.js: `stock` 0.85 g × 3.9 s (tops out ~35–40 km); `extended` (override)
+  2 g × 7 s, +15 % in vacuum, scorches the wing 0.5 hp/s (never below 25 % hull) — a full load fired in
+  sequence in a steep zoom reaches 100+ km in the F-22 / Su-35.
+- Above ~15 km `Environment.update` stretches the water disc past the true horizon (√(2Rh)), raises the
+  camera far / near planes to match, and dips the sky horizon (`uDip`) so the fogged sea rim reads as a
+  curved Earth limb.
 
 ## Mission API (engine/Game.js → engine/Missions.js)
 
