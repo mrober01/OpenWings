@@ -432,7 +432,8 @@ export class Cockpit {
     big(6, 'MASTER', 'WARN', warning && blink, G.COLORS.RED);
     big(92, 'MASTER', 'CAUTN', caution, G.COLORS.AMBER);
     const lamps = [['ENG', o.flameout, G.COLORS.RED], ['THIN', o.rho < 0.3 && !o.onGround, G.COLORS.AMBER], ['BOOST', s.boost > 0 && blink, G.COLORS.RED],
-      ['LATCH', s.latch, G.COLORS.AMBER], ['OVRD', s.override, G.COLORS.RED], ['', false, G.COLORS.AMBER]];
+      ['LATCH', s.latch, G.COLORS.AMBER], ['OVRD', s.override, G.COLORS.RED],
+      s.motorsCut ? ['MTR CUT', true, G.COLORS.AMBER] : ['RCS', !!s.rcsOn, G.COLORS.GREEN]];
     lamps.forEach(([t, on, c], i) => G.lamp(g, 178 + (i % 3) * 68, 8 + Math.floor(i / 3) * 42, 64, 36, t, on, c));
   }
 

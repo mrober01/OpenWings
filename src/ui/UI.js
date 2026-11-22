@@ -8,6 +8,7 @@ import { getMap } from '../world/Maps.js';
 import { MAP_THUMBS } from './mapThumbs.js';
 import { OPTIONS } from '../engine/Settings.js';
 import { AB_DETENT } from '../engine/FlightModel.js';
+import { AP_MODES } from '../engine/Autopilot.js';
 
 const MENU_OPTIONS = ['map', 'start', 'tod', 'difficulty', 'assist', 'quality', 'sensitivity', 'invertY', 'tilt', 'sound', 'haptics'];
 const STICK_R = 58;
@@ -90,9 +91,9 @@ export class UI {
     this.$('menu-help').innerHTML = this.isTouch
       ? `<b>Left thumb</b> flies (pull down = nose up) · <b>right slider</b> is the throttle, top = afterburner · drag the sky to look around · ` +
         `<b>TGT</b> picks a target, hold it in front until the diamond closes, then <b>MSL</b> · stop on a runway to rearm · ` +
-        `<b>LATCH</b> + <b>MSL</b> = missile motor stays on the rail as a rocket boost · <b>hold LATCH</b> (latches locked) = override the motor burn limiter: long burns, scorched wing, enough to reach space · <b>EJECT</b> twice to bail out`
+        `<b>LATCH</b> + <b>MSL</b> = missile motor stays on the rail as a rocket boost · <b>hold LATCH</b> (latches locked) = override the motor burn limiter: long burns, scorched wing, enough to reach space · <b>EJECT</b> twice to bail out · <b>AUTO</b> = autopilot (take off, land, space, landmark, target, hold; drag anywhere to look around while it flies, AUTO → OFF to take over) · <b>HOOK</b> for carrier traps · <b>MTR</b> = motors on/off (latches locked; wingtip RCS steers you in space)`
       : `<b>W/S</b> pitch · <b>A/D</b> roll · <b>Q/E</b> rudder · <b>Shift/Ctrl</b> throttle (1-5 presets, 5 = afterburner) · <b>Space</b> gun · ` +
-        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · right-drag look · <b>Esc</b> pause · gamepad supported`;
+        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · <b>K</b> tail hook · <b>O</b> autopilot (then 1-6; the mouse looks around while it flies, W/A/S/D take over) · <b>U</b> motor cut-off / relight (latches locked; also arms the wingtip RCS thrusters for steering in space) · right-drag look · <b>Esc</b> pause · gamepad supported`;
 
     const on = (id, fn) => this.$(id).addEventListener('click', () => { this.audio.unlock(); this.audio.play('click'); fn(); });
     on('btn-fly', () => this.fly());
@@ -102,6 +103,12 @@ export class UI {
     on('btn-end-restart', () => this.fly());
     on('btn-end-hangar', () => this.toMenu());
     on('btn-pause', () => this.pauseGame());
+    // autopilot picker: click / tap a mode
+    for (const b of document.querySelectorAll('#ap-panel button')) {
+      const pick = (e) => { e.preventDefault(); e.stopPropagation(); this.pickAP(b.dataset.ap); };
+      b.addEventListener('click', pick);
+      b.addEventListener('touchstart', pick, { passive: false });
+    }
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.pauseGame(); });
   }
 
@@ -123,6 +130,7 @@ export class UI {
     if (k !== 'start') return this.settings.name(k);
     const m = getMap(this.settings.get('map'));
     const i = OPTIONS.start.values.indexOf(this.settings.get('start'));
+    if (i === 4 || (i === 0 && m.carrierHome)) return `CARRIER · ${m.carrier || 'CVN-77 VALIANT'}`;
     return i === 3 ? `AIRBORNE · OVER ${m.city}` : m.fields[Math.max(0, i)];
   }
 
@@ -221,9 +229,30 @@ export class UI {
     this.show('btn-msl', s.missileCount > 0); this.show('btn-fire', s.gunAmmo > 0);
     this.show('btn-flare', s.flares > 0); this.show('btn-gear', s.gearH > 0);
     this.show('btn-latch', s.missileCount > 0); this.show('btn-eject', s.cockpit !== 'airliner');
+    this.show('btn-mtr', s.missileCount > 0); this.show('btn-hook', s.type !== 'heli');
+  }
+
+  /** Open / close the autopilot mode picker. */
+  toggleAP(open = !this.apOpen) {
+    if (open && this.game.state !== 'playing') return;
+    this.apOpen = open;
+    this.show('ap-panel', open);
+    if (open) {
+      if (document.exitPointerLock && this.mouse.locked) document.exitPointerLock();
+      const cur = this.game.ap ? this.game.ap.mode : null;
+      for (const b of document.querySelectorAll('#ap-panel button')) b.classList.toggle('on', b.dataset.ap === cur);
+    }
+  }
+
+  apLamp(on) { this.$('btn-auto').classList.toggle('on', on); }
+
+  pickAP(mode) {
+    this.toggleAP(false);
+    this.game.setAP(mode);
   }
 
   setFlightUi(on) {
+    if (!on) this.toggleAP(false);
     this.touchActive = on && this.isTouch;
     this.show('touch-ui', this.touchActive);
     this.show('btn-pause', on);
@@ -284,6 +313,13 @@ export class UI {
       if (e.code === 'Escape' || e.code === 'KeyP') { this.togglePause(); return; }
       if (e.code === 'Enter' && g.state === 'menu') { this.fly(); return; }
       if (g.state !== 'playing') return;
+      // autopilot picker open: 0-6 choose a mode (and do not move the throttle)
+      if (this.apOpen && /^(Digit|Numpad)[0-6]$/.test(e.code)) {
+        const n = +e.code.slice(-1);
+        this.pickAP(n === 0 ? 'off' : AP_MODES[n - 1]);
+        this.keys[e.code] = false;
+        return;
+      }
       switch (e.code) {
         case 'KeyV': g.cycleView(); break;
         case 'KeyG': g.toggleGear(); break;
@@ -293,6 +329,9 @@ export class UI {
         case 'KeyN': g.cycleNav(); break;
         case 'KeyJ': g.eject(); break;
         case 'KeyH': g.latchPress(); break;
+        case 'KeyK': g.toggleHook(); break;
+        case 'KeyU': g.toggleMotors(); break;
+        case 'KeyO': this.toggleAP(); break;
         case 'Space': e.preventDefault(); break;
         default:
       }
@@ -314,6 +353,8 @@ export class UI {
     document.addEventListener('pointerlockchange', () => { this.mouse.locked = document.pointerLockElement === canvas; });
     document.addEventListener('mousemove', (e) => {
       if (rdrag) { this.lookD.dx += e.movementX; this.lookD.dy += e.movementY; }
+      // with the autopilot flying, the captured mouse looks around instead of flying
+      else if (this.mouse.locked && this.game.ap) { this.lookD.dx += e.movementX; this.lookD.dy += e.movementY; }
       else if (this.mouse.locked) { this.mouse.dx += e.movementX; this.mouse.dy += e.movementY; }
     });
     document.addEventListener('mouseup', (e) => { if (e.button === 0) this.mouse.fire = false; if (e.button === 2) rdrag = false; });
@@ -327,7 +368,7 @@ export class UI {
 
     // ---- floating stick: appears where the left thumb lands ----
     const zone = this.$('stick-zone'), base = this.$('stick-base'), nub = this.$('stick-nub');
-    let sid = null, ox = 0, oy = 0;
+    let sid = null, ox = 0, oy = 0, lookOnly = false, lx0 = 0, ly0 = 0;
     const place = (x, y) => { base.style.left = x + 'px'; base.style.top = y + 'px'; };
     const home = () => {
       const r = zone.getBoundingClientRect();
@@ -341,6 +382,9 @@ export class UI {
       if (sid !== null) return;
       const t = e.changedTouches[0];
       sid = t.identifier; ox = t.clientX; oy = t.clientY;
+      // autopilot flying: the left thumb looks around like the rest of the screen (take over with AUTO → OFF)
+      lookOnly = !!this.game.ap; lx0 = ox; ly0 = oy;
+      if (lookOnly) return;
       place(ox, oy); base.classList.add('active');
       this.stick.on = true; this.stick.x = 0; this.stick.y = 0;
     }, opts);
@@ -348,6 +392,7 @@ export class UI {
       e.preventDefault();
       for (const t of e.changedTouches) {
         if (t.identifier !== sid) continue;
+        if (lookOnly) { this.lookD.dx += t.clientX - lx0; this.lookD.dy += t.clientY - ly0; lx0 = t.clientX; ly0 = t.clientY; continue; }
         let dx = t.clientX - ox, dy = t.clientY - oy;
         const len = Math.hypot(dx, dy);
         if (len > STICK_R) {
@@ -364,7 +409,8 @@ export class UI {
       for (const t of e.changedTouches) {
         if (t.identifier !== sid) continue;
         sid = null; this.stick.on = false; this.stick.x = 0; this.stick.y = 0;
-        home();
+        if (!lookOnly) home();
+        lookOnly = false;
       }
     };
     zone.addEventListener('touchend', endStick);
@@ -418,6 +464,9 @@ export class UI {
     tap('btn-view', () => game.cycleView());
     tap('btn-nav', () => game.cycleNav());
     tap('btn-eject', () => game.eject());
+    tap('btn-hook', () => game.toggleHook());
+    tap('btn-mtr', () => game.toggleMotors());
+    tap('btn-auto', () => this.toggleAP());
     // LATCH: tap = pylon latches, hold ~1.5 s = lift the guard and override the motor burn limiter
     hold('btn-latch', (v) => { if (v) game.latchPress(); else game.latchRelease(); });
     window.addEventListener('resize', () => { if (sid === null) home(); this.paintThrottle(); });
@@ -508,7 +557,8 @@ export class UI {
       roll += f(this.stick.x) * m;
     }
 
-    if (this.tilt && this.tilt.live && s.get('tilt') && !this.stick.on) {
+    // tilt-to-fly is ignored while the autopilot flies (holding the phone must not take over)
+    if (this.tilt && this.tilt.live && s.get('tilt') && !this.stick.on && !this.game.ap) {
       pitch += expo(this.tilt.pitch) * inv * sens;
       roll += expo(this.tilt.roll) * sens;
     }
@@ -531,6 +581,7 @@ export class UI {
       edge(1, () => g.fireMissile()); edge(2, () => g.dropFlare()); edge(3, () => g.cycleTarget());
       edge(12, () => g.cycleView()); edge(13, () => g.toggleGear()); edge(9, () => this.togglePause());
       edge(11, () => g.eject());
+      edge(8, () => { const i = AP_MODES.indexOf(g.ap ? g.ap.mode : ''); g.setAP(i + 1 < AP_MODES.length ? AP_MODES[i + 1] : 'off'); });   // Back/Select: cycle autopilot modes
       { const d = on(10); if (d && !pv[10]) g.latchPress(); else if (!d && pv[10]) g.latchRelease(); pv[10] = d; }   // L3: tap / hold like LATCH
     }
 

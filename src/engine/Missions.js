@@ -54,7 +54,11 @@ export const MISSIONS = {
       const start = (g.settings && g.settings.get('start')) || 'valhall';
       const idx = { valhall: 0, nordvik: 1, redkeep: 2 }[start];
       const home = fields[idx ?? 0] || fields[0];
-      if (start === 'air' && city) {
+      const cv = g.env.carrier, onBoat = cv && (start === 'carrier' || (start === 'valhall' && g.env.map.carrierHome));
+      if (onBoat) {
+        g.placePlayer({ carrier: cv, cat: 0 });
+        g.say(g.player.spec.type === 'heli' ? `${cv.name} · COLLECTIVE UP TO LIFT OFF` : `${cv.name} · ON CAT 1 · FULL POWER TO LAUNCH`, 'good');
+      } else if (start === 'air' && city) {
         // airborne a few km out, pointed at the city
         const ang = headingTo(home.x, home.z, city.x, city.z);
         const sx = city.x - Math.sin(ang) * 5000, sz = city.z + Math.cos(ang) * 5000;
@@ -68,7 +72,12 @@ export const MISSIONS = {
       g.spawnAir('a320', 0, { x: civ.x + 6000, z: civ.z, y: 1900, heading: 0, score: 0, ai: { role: 'drone', waypoints: ring(civ.x, civ.z, 6000, 1900, 8), cruiseAlt: 1900, minAGL: 400 } });
       g.spawnAir('c172', 0, { x: home.x + 2500, z: home.z - 1500, y: home.y + 600, heading: 2, score: 0, ai: { role: 'drone', waypoints: ring(home.x, home.z, 3500, home.y + 600, 8), cruiseAlt: home.y + 600, minAGL: 200 } });
       return {
-        objective: () => (g.player.fm.onGround ? 'THROTTLE UP · ROTATE AT 140 KT' : 'FREE FLIGHT · LAND AT ANY AIRFIELD TO REFUEL'),
+        objective: () => {
+          const fm = g.player.fm;
+          if (fm.cat && !fm.cat.fired) return 'ON THE CATAPULT · FULL POWER (5 / SLIDER TO THE TOP) TO LAUNCH';
+          if (fm.arrest) return 'TRAPPED · THROTTLE IDLE · DECK CREW WILL RE-SPOT YOU';
+          return fm.onGround ? 'THROTTLE UP · ROTATE AT 140 KT' : 'FREE FLIGHT · LAND ANYWHERE TO REFUEL · CARRIER: GEAR + HOOK (K)';
+        },
         update() {},
       };
     },
@@ -77,7 +86,7 @@ export const MISSIONS = {
   dogfight: {
     title: 'DOGFIGHT', blurb: (m) => `Bandits inbound over the ${m.terrainWord}. Splash them all.`, armed: true,
     create(g) {
-      const home = g.env.airfields[0], foe = g.env.airfields[2];
+      const home = g.homeBase(), foe = g.env.airfields[2];
       const hdg = headingTo(home.x, home.z, foe.x, foe.z);
       g.placePlayer({ x: home.x, z: home.z, y: 2600, heading: hdg });
       const n = Math.max(1, Math.round(2 * g.diff.n));
@@ -94,7 +103,7 @@ export const MISSIONS = {
   waves: {
     title: 'WAVE ASSAULT', blurb: 'Endless waves, each tougher than the last. A wingman covers you.', armed: true,
     create(g) {
-      const home = g.env.airfields[0];
+      const home = g.homeBase();
       g.placePlayer({ x: home.x, z: home.z - 2000, y: 2400, heading: 0 });
       let wave = 0, pause = 2, wing = null;
       const ps = g.player.spec;
@@ -154,7 +163,7 @@ export const MISSIONS = {
   intercept: {
     title: 'INTERCEPT', blurb: (m) => `Bear bombers are running in on ${cap(m.city)}. Stop them before they reach the city.`, armed: true,
     create(g) {
-      const home = g.env.airfields[0], city = g.env.hf.city;
+      const home = g.homeBase(), city = g.env.hf.city;
       const from = headingTo(home.x, home.z, city.x, city.z);       // bombers come from beyond the city
       const dist = g.diff.n < 1 ? 31000 : 27000;
       const bx = city.x + Math.sin(from) * dist, bz = city.z - Math.cos(from) * dist, alt = 2600;
@@ -196,6 +205,11 @@ export const MISSIONS = {
     },
   },
 
+  trap: {
+    title: 'CARRIER LANDING', blurb: 'Behind the boat at 1,100 ft. Gear and hook down, fly the ball, catch the 3 wire. No flare!', armed: false,
+    create(g) { return trapMission(g); },
+  },
+
   landing: {
     title: 'LANDING CHALLENGE', blurb: 'Nine kilometres out on final. Gear down, follow the ILS, grease it.', armed: false,
     create(g) {
@@ -224,10 +238,41 @@ export const MISSIONS = {
   },
 };
 
+/** Carrier landing: start on the approach behind the boat. Shared by the 'trap' mission. */
+function trapMission(g) {
+  const cv = g.env.carrier, L = cv.landing, dist = 5600;
+  g.placePlayer({ final: L, dist: dist - L.aim, alt: dist * Math.tan(L.glide) + 6 });
+  g.navField = L;
+  let wire = null, bolters = 0, td = null;
+  return {
+    objective: () => {
+      const fm = g.player.fm;
+      if (wire) return 'TRAPPED · THROTTLE IDLE';
+      if (!fm.gearDown) return 'GEAR DOWN (G) · HOOK DOWN (K) · SLOW TO APPROACH SPEED';
+      if (!fm.hookDown) return 'HOOK DOWN (K / HOOK BUTTON)';
+      return `FLY THE BALL: HOLD THE ILS BARS · NO FLARE · AIM BETWEEN WIRES 2 AND 3${bolters ? ` · BOLTERS ${bolters}` : ''}`;
+    },
+    onTouchdown(info) { td = info; },
+    onTrap(info) { wire = info; },
+    onBolter() { bolters++; },
+    onArrested() {
+      if (!wire) return;
+      const sink = td ? td.sink : 4;
+      const base = { 1: 450, 2: 780, 3: 1000, 4: 620 }[wire.wire] || 400;
+      const s = Math.round(clamp(base - Math.abs(wire.lat) * 25 - Math.max(0, sink - 5) * 80 - bolters * 150, 50, 1000));
+      g.addScore(s);
+      const grade = s > 880 ? 'OK PASS' : s > 650 ? 'FAIR PASS' : 'NO-GRADE PASS';
+      g.finish(true, `${wire.wire} WIRE · ${grade}`,
+        `Sink ${Math.round(sink * 197)} ft/min · ${Math.abs(wire.lat).toFixed(1)} m off the centreline · ${Math.round(wire.speed * 1.944)} kt at the wire${bolters ? ` · ${bolters} bolter${bolters > 1 ? 's' : ''}` : ''}`);
+    },
+    update() {},
+  };
+}
+
 /** Mission blurb for the menu, filled in for a map key. */
 export function missionBlurb(key, mapKey) {
   const b = MISSIONS[key].blurb;
   return typeof b === 'function' ? b(getMap(mapKey)) : b;
 }
 
-export const MISSION_ORDER = ['free', 'dogfight', 'strike', 'intercept', 'waves', 'landing'];
+export const MISSION_ORDER = ['free', 'dogfight', 'strike', 'intercept', 'waves', 'landing', 'trap'];

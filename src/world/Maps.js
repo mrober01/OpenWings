@@ -104,6 +104,30 @@ function tropic(hf, x, z) {
   return Math.max(h, SEA_FLOOR);
 }
 
+/* ---------------- Pacific: open ocean, a chain of jungle islands, the carrier is home ---------------- */
+// [x, z, radius, relief]: the three big islands carry the airfields, the small ones are scenery
+const PACIFIC_ISLES = [[-9500, 7000, 4600, 0.8], [8500, 9500, 5200, 1.2], [7500, -10500, 4400, 0.9],
+  [-11500, -9500, 2100, 0.7], [-1500, 15500, 1700, 0.6], [16000, -1500, 1500, 0.5], [-16500, 800, 1300, 0.5], [1500, -3000, 700, 0.35]];
+function pacific(hf, x, z) {
+  const n = hf.noise;
+  const [wx, wz] = warp(hf, x, z, 1300);
+  let m = -1, relief = 0;
+  for (const [cx, cz, r, rel] of PACIFIC_ISLES) {
+    const k = 1 - Math.hypot(wx - cx, wz - cz) / r + hf.fbm(wx / 2600 + cx * 1e-3, wz / 2600 - cz * 1e-3, 3) * 0.32;
+    if (k > m) { m = k; relief = rel; }
+  }
+  let h;
+  if (m <= 0) h = mix(SEA_FLOOR, -3, smoothstep(-0.3, 0, m));          // reef shelf, then deep blue water
+  else {
+    const k = smoothstep(0, 0.45, m);
+    const hills = hf.fbm(x / 1700, z / 1700, 4);
+    const peaks = Math.pow(Math.max(0, hf.fbm(wx / 2900 - 21, wz / 2900 + 13, 4) + 0.12), 1.5);
+    h = mix(-3, 6, smoothstep(0, 0.05, m)) + k * (14 + hills * 14) + k * k * peaks * 620 * relief;
+  }
+  h += n.noise2D(x / 400, z / 400) * (1.5 + Math.max(h, 0) * 0.03);
+  return Math.max(h, SEA_FLOOR);
+}
+
 /* ---------------- real-world maps ---------------- */
 const realCache = new WeakMap();
 /** Decoded class grid of a real map + distance (m) from every vertex to the nearest vertex of the
@@ -375,6 +399,22 @@ export const MAPS = {
     houses: [0xf4f1ea, 0xf2d6a2, 0xa8d8d0, 0xf0b8a0, 0xe8e8f0, 0xb8d890], clouds: 1.25,
     mini: { sand: [214, 200, 150], low: [46, 104, 38], up: [70, 80, 44], high: [70, 64, 60], upH: 500, highH: 950 },
   },
+  pacific: {
+    name: 'PACIFIC CARRIER GROUP', seed: 0.5577, shape: pacific, carrierHome: true, carrierDist: 9000,
+    fields: ['ATOLL FIELD', 'PORT KAILANI', 'IRON REEF'], city: 'PORT KAILANI', terrainWord: 'open ocean',
+    palette: {
+      grassA: [0.07, 0.24, 0.04], grassB: [0.18, 0.34, 0.07], upland: [0.14, 0.20, 0.08], uplandH: [300, 700],
+      patch: [0.05, 0.15, 0.03, 0.35],
+      forest: [0.02, 0.12, 0.03], sand: [0.88, 0.82, 0.62], beachH: 7,
+      rockA: [0.12, 0.11, 0.10], rockB: [0.26, 0.23, 0.20], rockSlope: [0.16, 0.34], strata: 0,
+      snow: [0.93, 0.95, 1.0], snowH: [1e5, 1e5 + 1],
+      shallow: [0.04, 0.55, 0.58], deep: [0.006, 0.07, 0.22],
+    },
+    forest: { hMin: 8, hMax: 640, bias: -0.25 },
+    trees: { shape: 'blob', hue: [0.25, 0.08], sat: 0.55, light: [0.26, 0.1], size: [10, 10], width: 0.75 },
+    houses: [0xf4f1ea, 0xf2d6a2, 0xa8d8d0, 0xf0b8a0, 0xe8e8f0, 0xb8d890], clouds: 1.1,
+    mini: { sand: [214, 200, 150], low: [46, 104, 38], up: [70, 80, 44], high: [90, 84, 76], upH: 400, highH: 800 },
+  },
 };
 
 
@@ -585,5 +625,5 @@ MAPS.rio = {
   ],
 };
 
-export const MAP_ORDER = ['nordic', 'desert', 'tropic', 'nyc', 'paris', 'london', 'rio'];
+export const MAP_ORDER = ['nordic', 'desert', 'tropic', 'pacific', 'nyc', 'paris', 'london', 'rio'];
 export const getMap = (key) => MAPS[key] || MAPS.nordic;

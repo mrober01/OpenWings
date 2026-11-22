@@ -6,8 +6,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b1020">
-<title>OpenWings</title>
-<link rel="icon" href="data:,">
+<title>OpenWings — free browser flight & air-combat sim</title>
+<meta name="description" content="Free 3D flight and air-combat sim in your browser, phone or PC. 9 aircraft, 7 missions, carrier landings, autopilot, real New York, Paris, London and Rio. One HTML file, works offline.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="OpenWings — free browser flight & air-combat sim">
+<meta property="og:description" content="9 aircraft, 7 missions, carrier landings, autopilot, real New York, Paris, London and Rio. Runs on your phone, nothing to install.">
+<meta property="og:url" content="https://mrober01.github.io/OpenWings/">
+<meta property="og:image" content="https://mrober01.github.io/OpenWings/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%88%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
@@ -25,6 +32,9 @@
       <button class="tbtn sm" id="btn-view">VIEW</button>
       <button class="tbtn sm" id="btn-gear">GEAR</button>
       <button class="tbtn sm" id="btn-nav">NAV</button>
+      <button class="tbtn sm" id="btn-auto">AUTO</button>
+      <button class="tbtn sm" id="btn-hook">HOOK</button>
+      <button class="tbtn sm" id="btn-mtr">MTR</button>
       <button class="tbtn sm" id="btn-latch">LATCH</button>
       <button class="tbtn sm eject" id="btn-eject">EJECT</button>
       <button class="tbtn" id="btn-flare">FLR</button>
@@ -78,6 +88,17 @@
   <div id="rotate-hint"><div>⟳<p>Rotate your phone to landscape</p></div></div>
   <div id="loading" class="screen hidden"><div class="spinner"></div><p id="loading-msg">Building world…</p></div>
   <div id="toast"></div>
+  <!-- autopilot mode picker (AUTO button / key O; 1-6 pick a mode while it is open) -->
+  <div id="ap-panel" class="hidden">
+    <div class="ap-title">AUTOPILOT</div>
+    <button data-ap="takeoff"><i>1</i>TAKE OFF</button>
+    <button data-ap="land"><i>2</i>LAND</button>
+    <button data-ap="space"><i>3</i>GO TO SPACE</button>
+    <button data-ap="landmark"><i>4</i>NEXT LANDMARK</button>
+    <button data-ap="target"><i>5</i>ATTACK TARGET</button>
+    <button data-ap="hold"><i>6</i>HOLD ALT / HDG</button>
+    <button data-ap="off" class="off"><i>0</i>OFF</button>
+  </div>
 
   <script type="importmap">
   { "imports": { "three": "./assets/vendor/three.module.js" } }

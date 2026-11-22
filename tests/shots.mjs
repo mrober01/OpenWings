@@ -59,6 +59,18 @@ export const SCENARIOS = {
       g.cam.lookPitch = -0.75; g.cam.lookYaw = 0.75; g.cam.lookIdle = -1e9`, wait: 1 },
   // hung-missile booster: latches locked, two motors lit on the rails
   boost: { setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:900}); __game.toggleLatch(); __game.fireMissile(); __game.fireMissile()`, wait: 1.2 },
+  // carrier ops: on the catapult, the boat from astern on approach, the deck at night, hook down, autopilot picker
+  carrier_deck: { setup: `__shot.start('free','f22',{tod:'day',start:'carrier',view:'orbit'}); __game.cam.orbitYaw = 2.5; __game.cam.orbitPitch = 0.3`, wait: 2 },
+  carrier_wide: { setup: `__shot.start('free','ef2000',{tod:'day',start:'carrier',view:'orbit'}); __game.cam.orbitYaw = 0.9; __game.cam.orbitPitch = 0.45;
+      { const c = __game.cam, u = c.update.bind(c); c.update = (...a) => { u(...a); const k = __game.engine.camera; k.position.sub(__game.player.pos).multiplyScalar(14).add(__game.player.pos); k.lookAt(__game.env.carrier.x, 10, __game.env.carrier.z); }; }`, wait: 2 },
+  carrier_final: { setup: `__shot.start('trap','f22',{tod:'day'}); __game.player.fm.gearDown = true; __game.player.fm.hookDown = true; __game.setAP('land'); for (let t = 0; t < 52; t += 1 / 30) __game.update(1 / 30)`, wait: 1 },
+  carrier_pit: { setup: `__shot.start('trap','ef2000',{tod:'sunset',view:'cockpit'}); __game.setAP('land'); for (let t = 0; t < 50; t += 1 / 30) __game.update(1 / 30)`, wait: 1 },
+  carrier_night: { setup: `__shot.start('trap','f22',{tod:'night'}); __game.setAP('land'); for (let t = 0; t < 45; t += 1 / 30) __game.update(1 / 30)`, wait: 1 },
+  carrier_hook: { setup: `__shot.start('free','f22',{tod:'day',air:true,alt:400,view:'orbit'}); const p = __game.player; p.fm.hookDown = true; p.fm.hookPos = 1; p.fm.gearDown = true; p.fm.gearPos = 1; __game.cam.orbitYaw = 2.0; __game.cam.orbitPitch = -0.15;
+      { const c = __game.cam, u = c.update.bind(c); c.update = (...a) => { u(...a); const k = __game.engine.camera; k.fov = 24; k.updateProjectionMatrix(); }; }`, wait: 1.5 },
+  pacific: { setup: `__shot.start('free','su35',{tod:'day',map:'pacific',start:'carrier',view:'orbit'}); __game.cam.orbitYaw = 3.5; __game.cam.orbitPitch = 0.25`, wait: 2 },
+  ap_panel: { setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:900}); __game.setAP('landmark'); __game.ui.toggleAP(true)`, wait: 1.5 },
+  rcs_space: { setup: `__shot.start('free','f22',{tod:'day',air:true,alt:45000,view:'orbit'}); __game.player.fm.setAirborne(__game.player.obj, 600); __game.toggleLatch(); __game.ui.keys.KeyD = true; __game.cam.orbitYaw = 2.4; __game.cam.orbitPitch = 0.2`, wait: 1.2 },
   explosion: { setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:500}); __shot.boom()`, wait: 0.6 },
   // the other maps: low chase, high overview and a runway start on each
   // low pass toward each map's city (buildings close up); tod given per scenario

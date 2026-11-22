@@ -29,6 +29,7 @@ function mergeGeo(list) {
 }
 import { bakeTerrainLight } from './LightBake.js';
 import { buildLandmarks } from './Landmarks.js';
+import { buildCarrierMesh } from './CarrierMesh.js';
 
 /* ---------- time-of-day presets ---------- */
 export const ATMOSPHERES = {
@@ -214,6 +215,8 @@ export class Environment {
     this.buildWater();
     this.buildClouds();
     this.buildAirfields();
+    this.carrier = this.hf.carrier;
+    if (this.carrier) { this.carrierMesh = buildCarrierMesh(this, this.carrier); this.group.add(this.carrierMesh); }
     this.buildCity();
     this.bakeCityShadows();
     if (this.quality !== 'low') this.buildTrees();
@@ -2013,26 +2016,8 @@ export class Environment {
   terrainHeight(x, z) { return this.hf.height(x, z); }
   groundHeight(x, z) { return Math.max(this.hf.height(x, z), 0); }
 
-  /** Surface under (x,z): fills out = { y, water, runway, slope }. */
-  ground(x, z, out) {
-    const h = this.hf.height(x, z);
-    out.water = h <= 0.2;
-    out.y = out.water ? 0 : h;
-    out.runway = false;
-    out.slope = out.water ? 0 : this.hf.slope(x, z);
-    for (const a of this.airfields) {
-      const dx = x - a.x, dz = z - a.z;
-      if (Math.abs(dx) > a.length || Math.abs(dz) > a.length) continue;
-      const along = dx * a.dirX + dz * a.dirZ, lat = dx * -a.dirZ + dz * a.dirX;
-      if (Math.abs(along) < a.length / 2 + 30 && lat > -a.width / 2 && lat < 360) {
-        // runway, taxiway and apron are all hard, level surfaces
-        out.y = a.y + 0.3; out.slope = 0; out.water = false;
-        out.runway = Math.abs(lat) < a.width / 2 || lat > 60;
-        break;
-      }
-    }
-    return out;
-  }
+  /** Surface under (x,z): fills out = { y, water, runway, slope, carrier } (see Heightfield.ground). */
+  ground(x, z, out) { return this.hf.ground(x, z, out); }
 
   nearestRunway(x, z) {
     let best = null, bd = Infinity;
@@ -2064,5 +2049,6 @@ export class Environment {
     if (Math.abs(cam.far - far) > far * 0.02 || Math.abs(cam.near - near) > 0.05) { cam.far = far; cam.near = near; cam.updateProjectionMatrix(); }
     this.water.position.set(Math.round(cameraPos.x / 2000) * 2000, 0, Math.round(cameraPos.z / 2000) * 2000);
     this.updateClouds(dt, cameraPos);
+    if (this.carrierMesh) this.carrierMesh.userData.radar.rotation.y += dt * 2.4;
   }
 }

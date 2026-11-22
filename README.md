@@ -1,7 +1,13 @@
 # OpenWings — browser flight / air-combat sim (v2)
 
 **▶ Play it now: https://mrober01.github.io/OpenWings/** (phone or PC, nothing to install)
+
 **⬇ Download the game file (offline / phone copy):** [OpenWings.html](https://github.com/mrober01/OpenWings/releases/latest/download/OpenWings.html), open it in any browser
+
+| | | |
+|---|---|---|
+| ![New York](docs/img/new-york.jpg) | ![Paris](docs/img/paris.jpg) | ![London at night](docs/img/london-night.jpg) |
+| ![Dogfight](docs/img/dogfight.jpg) | ![Cockpit](docs/img/cockpit.jpg) | ![Space with RCS thrusters](docs/img/space.jpg) |
 
 A self-contained 3D flight simulator that runs in any modern browser, built
 **phone-first** (landscape, touch), in the spirit of the 90s combat flight sims. No server, no accounts,
@@ -9,17 +15,21 @@ no internet: everything is procedural and the whole game builds into **one HTML 
 
 - **9 flyable aircraft**: Eurofighter Typhoon, F-22, Su-35, MiG-29, A-10, Mi-24 Hind,
   Spitfire, Cessna 172, Airbus A320
-- **6 missions**: Free Flight, Dogfight, Ground Strike (AAA + SAMs), Intercept (bombers),
-  Wave Assault (with a wingman), Landing Challenge (ILS, graded) — three difficulty levels, best scores saved
+- **7 missions**: Free Flight, Dogfight, Ground Strike (AAA + SAMs), Intercept (bombers),
+  Wave Assault (with a wingman), Landing Challenge (ILS, graded), Carrier Landing (catch the 3 wire) — three difficulty levels, best scores saved
+- **Aircraft carrier** on every map: catapult launches off the bow, tail hook + four arrestor wires on the angled deck,
+  bolters, ramp strikes, the deck crew re-spots you on the cat after a trap
+- **Autopilot**: take off, land (runway or carrier, with go-arounds), go to space (the hung-missile booster run, all by
+  itself), tour the map's landmarks, attack the nearest target, hold altitude/heading
 - **Flight model** with real g, energy bleed, stall, fly-by-wire assist; AI flies the same physics
 - **Fighter HUD** (pitch ladder, flight-path marker, target box, lead-computing gun sight, missile lock, ILS, moving-map radar)
 - **3D cockpit**, chase / padlock / fly-by / orbit views, drag to look around
-- Seven 40 km maps — three made-up worlds (Nordic fjords, desert canyons, tropical islands) and four real cities at 1:1 scale:
+- Eight 40 km maps — four made-up worlds (Nordic fjords, desert canyons, tropical islands, a Pacific carrier group) and four real cities at 1:1 scale:
   - **New York**: Manhattan's grid, Empire State, Chrysler, One WTC, Statue of Liberty, Brooklyn / Manhattan / Williamsburg / George Washington / Verrazzano bridges; from JFK, LaGuardia or Newark
   - **Paris**: the Seine, Eiffel Tower (floodlit at night), Arc de Triomphe, Notre-Dame, Sacré-Cœur, the Louvre, Les Invalides, Montparnasse, La Défense and the Grande Arche, the Seine bridges; from Villacoublay, Orly or Charles de Gaulle
   - **London**: the Thames, Westminster and Big Ben, the London Eye, Tower Bridge, the Shard, St Paul's, the Gherkin, Battersea, the O2, the Thames bridges; from RAF Northolt, Heathrow or London City
   - **Rio de Janeiro**: real mountain terrain, Christ the Redeemer on Corcovado, Sugarloaf and its cable car, the Rio–Niterói bridge, Maracanã, Copacabana; from Afonsos AB, Galeão or Santos Dumont
-- Every map has three airfields and a city; five times of day / weather; free flight can start from any airfield or airborne
+- Every map has three airfields, a carrier and a city; five times of day / weather; free flight can start from any airfield, the carrier or airborne
 - Solid, destructible cities: smash through houses (towers stop you), shoot buildings apart
 - Detailed airframes: panel seams and rivets, sky reflections on paint and canopies, pilots, visible missiles
 - Procedural sound, haptics, gamepad support
@@ -41,6 +51,7 @@ Hold the phone in landscape. (`dist/index.html` is the same build and is kept in
 npm run dev        # vite dev server → http://localhost:5173  (hard-refresh after edits)
 npm test           # node tests: flight envelope + AI
 node tests/play.mjs    # headless Chrome: an AI pilot flies every mission, fails on errors
+node tests/carrier.mjs # headless Chrome: catapult, autopilot traps / landings / take-offs / space run / attack / RCS
 node tests/shots.mjs   # headless screenshots → /tmp/ow-shots/
 ```
 
@@ -59,8 +70,11 @@ Docs for contributors: `docs/ARCHITECTURE.md` (module map) and `docs/INTERFACES.
 | Drag on the sky | Look around (springs back) |
 | GUN (hold) · MSL · FLR | Cannon · missile (needs a lock) · flares |
 | TGT | Cycle target — keep it in front until the diamond closes and you hear the tone |
-| BRK (hold) | Airbrake in flight, wheel brakes on the ground |
-| GEAR · VIEW · NAV | Gear · next view · next airfield for the nav/ILS readout |
+| BRK (hold) | Speed brake (also on the ground, with the wheel brakes) |
+| GEAR · VIEW · NAV | Gear · next view · next airfield (or the carrier) for the nav/ILS readout |
+| AUTO | Autopilot menu: take off · land · go to space · next landmark · attack target · hold · off. While it flies, drag anywhere (left side too) to look around; AUTO → OFF to take over |
+| HOOK | Tail hook for carrier landings |
+| LATCH · MTR | Pylon latches (missiles stay on the rails as rocket boosters; hold = burn-limiter override) · motor cut-off / relight |
 | II | Pause |
 
 Optional **TILT TO FLY** (hangar options): lean the phone to bank, tilt it to pitch;
@@ -74,13 +88,15 @@ it re-zeroes each time you press FLY or resume. Experimental.
 | Throttle | `Shift` up, `Ctrl` down; `1`–`4` presets, `5` afterburner |
 | Gun / missile / flares | `Space` / `X` / `F` |
 | Target / nav airfield | `T` / `N` |
-| Gear / brake | `G` / `B` |
+| Gear / brake / tail hook | `G` / `B` / `K` |
+| Autopilot | `O` opens the menu, then `1`–`6` (`0` = off). While it flies the mouse looks around; any flight key (`W` `A` `S` `D` …) takes over |
+| Pylon latches / motor cut-off | `H` (hold = burn-limiter override) / `U` |
 | View | `V` (chase → cockpit → padlock → fly-by → orbit) |
 | Look | right-mouse drag; click the view to use the mouse as a stick |
 | Pause | `Esc` or `P` |
 
 A standard gamepad also works (left stick fly, right stick look, RT gun, B missile,
-X flares, Y target, bumpers throttle, LT brake).
+X flares, Y target, bumpers throttle, LT brake, Back/Select cycles the autopilot modes).
 
 ## Flying tips
 
@@ -90,6 +106,13 @@ X flares, Y target, bumpers throttle, LT brake).
 - Missile warning tone? Break hard across the missile and pump flares.
 - Landing: gear down, follow the ILS bars to the runway, ~150 kt over the threshold, throttle to idle (auto-brakes).
   Stop on any friendly runway to refuel, rearm and repair.
+- Carrier: on the catapult go to full power (or afterburner) and hold it — the cat fires after a second. To land: gear
+  and hook down, ~120 kt, follow the ILS bars to the angled deck and fly it straight into the deck — **no flare**.
+  Miss the wires (bolter)? Power up and go around. Throttle to idle in the wire and the deck crew re-spot you on the cat.
+- Space: lock the pylon latches (LATCH), hold LATCH to override the burn limiter, zoom up steeply and fire the missiles
+  in pairs. With the latches locked the two wingtip rounds work as **RCS thrusters**: up where the air is too thin for
+  the controls, the stick still turns the jet (hands off = hold attitude). MTR / `U` cuts the motors (they keep their
+  remaining burn) and relights them. Or just pick GO TO SPACE on the autopilot.
 
 ## License
 

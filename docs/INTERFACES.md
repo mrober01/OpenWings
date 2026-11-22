@@ -46,7 +46,8 @@ mesh.userData = {
   pylons: Vector3[],      // missile launch points, local (alternate left/right); on armed types these are
                           //   the visible underwing missiles (none on the F-22: internal bay)
   update(dt, s) {},       // animate: s = { time, gearPos 0..1, thrEff 0..1, ab bool, pitch, roll, yaw (stick),
-                          //               airbrake 0..1, speed m/s, night bool, missiles? (left; hides fired rounds) }
+                          //               airbrake 0..1, speed m/s, night bool, missiles? (left; hides fired rounds),
+                          //               hook? 0..1 (tail hook), rcs? 0..1 (wingtip RCS grain; 0 hides the tip rounds) }
                           //   → gear retraction, burner flames, control surfaces/canards, props/rotors, nav lights
   dispose() {},           // no-op today: geometry/materials are cached per aircraft+team and shared
   glass,                  // canopy Mesh, with the pilot as its child (Game hides both in cockpit view)
@@ -190,3 +191,30 @@ g.bombCity(city); g.playerHeading(); g.v3(x, y, z)
 
 `window.__game`, `window.__shot.start(mission, aircraft, { tod, quality, difficulty, air, alt, view })`,
 `__shot.run(seconds, autopilot = true)`, `__shot.info()`, `__game.setAutopilot(bool)`.
+
+
+## Carrier (world/Carrier.js)
+
+```js
+env.carrier === hf.carrier          // Carrier on every map
+carrier.onDeck(x, z) · carrier.solidAt(x, y, z, r) · carrier.lane(x, z) → { t, s } · carrier.toWorld(f, r) · carrier.catPose(i)
+carrier.landing = { name, role: 'carrier', carrier, x, z, y, heading, dirX, dirZ, length, width, oneWay: true, aim, glide }
+env.ground(x, z, out)               // out.carrier = the Carrier when over its deck, else null
+```
+
+FlightModel carrier state (set by Game): `hookDown` / `hookPos`, `cat = { dirX, dirZ, speed, accel, stroke, dist, fired }`,
+`arrest = { v0, run, s, wire, stopped }`, `onCarrier`, `rcs` (0..1). Events: `catEnd { speed }`, `arrested`,
+`liftoff { carrier, cat }`. Crash reason `'ship'`.
+
+Missions may implement `onTrap({ wire, speed, lat, td })`, `onBolter()`, `onArrested(arrest)`.
+
+## Autopilot (engine/Autopilot.js)
+
+```js
+game.setAP(mode | 'off')            // mode ∈ AP_MODES: takeoff land space landmark target hold
+ap.update(dt) → { pitch, roll, yaw, throttle, brake, fire }
+ap.status                           // HUD line (hs.ap); ap.done + ap.doneMsg ask Game to disengage
+landmarkList(env) → [{ name, x, z, y, h }]
+```
+
+HUD state additions: `hs.ap` (string), `hs.rcs` (-1 none, else 0..1), `hs.rcsOn`, `hs.motorsCut`, `own.hook`, `own.cat`, `own.arrest`.

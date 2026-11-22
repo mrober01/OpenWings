@@ -2,10 +2,10 @@
 const KEY = 'openwings.v2';
 
 export const OPTIONS = {
-  map: { label: 'MAP', values: ['nordic', 'desert', 'tropic', 'nyc', 'paris', 'london', 'rio'], names: ['NORDIC FJORDS', 'DESERT CANYONS', 'TROPICAL ISLANDS', 'NEW YORK CITY', 'PARIS', 'LONDON', 'RIO DE JANEIRO'] },
+  map: { label: 'MAP', values: ['nordic', 'desert', 'tropic', 'pacific', 'nyc', 'paris', 'london', 'rio'], names: ['NORDIC FJORDS', 'DESERT CANYONS', 'TROPICAL ISLANDS', 'PACIFIC · CARRIER', 'NEW YORK CITY', 'PARIS', 'LONDON', 'RIO DE JANEIRO'] },
   // free-flight start: home / civil / enemy airfield of the current map, or airborne near its city
   // (the menu shows the current map's names; these are the fallbacks)
-  start: { label: 'FREE FLIGHT START', values: ['valhall', 'nordvik', 'redkeep', 'air'], names: ['HOME BASE', 'CIVIL AIRPORT', 'ENEMY FIELD', 'AIRBORNE · OVER CITY'] },
+  start: { label: 'FREE FLIGHT START', values: ['valhall', 'nordvik', 'redkeep', 'air', 'carrier'], names: ['HOME BASE', 'CIVIL AIRPORT', 'ENEMY FIELD', 'AIRBORNE · OVER CITY', 'AIRCRAFT CARRIER'] },
   tod: { label: 'TIME', values: ['day', 'dawn', 'sunset', 'night', 'overcast'], names: ['CLEAR DAY', 'GOLDEN HOUR', 'SUNSET', 'MOONLIT', 'OVERCAST'] },
   difficulty: { label: 'ENEMY', values: ['easy', 'normal', 'hard'], names: ['ROOKIE', 'VETERAN', 'ACE'] },
   assist: { label: 'ASSIST', values: [true, false], names: ['ON', 'OFF (RAW)'] },

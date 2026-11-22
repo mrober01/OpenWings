@@ -17,6 +17,7 @@ const want = new THREE.Vector3(), toT = new THREE.Vector3(), tmp = new THREE.Vec
 const gi = { y: 0, water: false, runway: false, slope: 0 };
 const BEAR = [0, 0.7, -0.7, 1.5, -1.5, 2.6];
 const SCAN_T = [0.02, 0.045, 0.075, 0.11, 0.17, 0.25, 0.37, 0.54, 0.75, 1]; // dense near, sparse far
+const _st = new THREE.Vector3();
 
 export class AIPilot {
   /**
@@ -248,37 +249,51 @@ export class AIPilot {
     }
 
     // ---- fly toward `want` ----
-    // acceleration needed to swing the nose onto `want`, plus gravity → where the
-    // lift vector must point; roll onto it and pull that many g.
-    const lz = want.dot(fwd);
-    const off = Math.acos(clamp(lz, -1, 1));
-    tmp.copy(want).addScaledVector(fwd, -lz);            // component of want ⟂ nose
-    const pl = tmp.length();
-    const aCmd = Math.min(V * off / 0.55, s.gMax * G * maxPull);
-    if (pl > 1e-5) tmp.multiplyScalar(aCmd / pl); else tmp.set(0, 0, 0);
-    tmp.y += G; tmp.addScaledVector(fwd, -G * fwd.y);     // + gravity compensation ⟂ nose
-    const Lr = tmp.dot(right), Lu = tmp.dot(up);
-    const rollErr = Math.atan2(Lr, Lu);
-    const Lmag = Math.hypot(Lr, Lu);
-    // roll-rate command with damping (a plain P gain here oscillates through the control lags)
-    let roll = clamp((rollErr * 3.2 - (fm.wr || 0) * 0.45) / s.rollRate, -1, 1);
-    const aligned = Math.cos(rollErr);
-    let pitch;
-    if (aligned > 0) pitch = clamp((Lmag * aligned * aligned - G * clamp(up.y, 0, 1)) / ((s.gMax - 1) * G), -0.4, maxPull);
-    else pitch = Lmag < 1.5 * G ? clamp(Lmag * aligned / ((s.gNeg + 1) * G), -0.5, 0) : 0;
-    // small errors: push/pull directly instead of rolling a long way round
-    if (off < 0.12 && Math.abs(rollErr) > 1.2 && danger < 0.05) {
-      roll = clamp((-Math.atan2(-right.y, up.y) * 3 - (fm.wr || 0) * 0.45) / s.rollRate, -1, 1);
-      pitch = clamp(want.dot(up) * 6, -0.5, 0.5);
-    }
-    inp.yaw = off < 0.06 ? clamp(want.dot(right) * 8, -1, 1) : 0;
-    // do not pull the aircraft below fighting speed unless the ground demands it
-    if (danger < 0.05 && V < s.vStall * 1.3) pitch = Math.min(pitch, 0.12);
-
-    const k = Math.min(1, dt * (5 + 6 * this.skill));
-    inp.pitch += (pitch - inp.pitch) * k;
-    inp.roll += (roll - inp.roll) * k;
+    steerToward(obj, fm, s, want, maxPull, danger, Math.min(1, dt * (5 + 6 * this.skill)), inp);
     inp.throttle = throttle;
     return inp;
   }
+}
+
+/**
+ * Stick inputs that swing the flight path onto the world direction `want` (unit vector): the
+ * acceleration needed to turn the nose onto it, plus gravity, says where the lift vector must point;
+ * roll onto it and pull that many g. Shared by the AI pilots and the player's autopilot.
+ * @param maxPull  0..1 of the aircraft's g limit
+ * @param danger   0..1 ground-collision urgency (disables the gentle small-error mode and the slow-speed pull limit)
+ * @param k        input smoothing 0..1 per call
+ * @param inp      { pitch, roll, yaw } written in place
+ */
+export function steerToward(obj, fm, s, want, maxPull, danger, k, inp) {
+  fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);
+  up.set(0, 1, 0).applyQuaternion(obj.quaternion);
+  right.set(1, 0, 0).applyQuaternion(obj.quaternion);
+  const V = Math.max(fm.speed, 1);
+  const lz = want.dot(fwd);
+  const off = Math.acos(clamp(lz, -1, 1));
+  _st.copy(want).addScaledVector(fwd, -lz);            // component of want ⟂ nose
+  const pl = _st.length();
+  const aCmd = Math.min(V * off / 0.55, s.gMax * G * maxPull);
+  if (pl > 1e-5) _st.multiplyScalar(aCmd / pl); else _st.set(0, 0, 0);
+  _st.y += G; _st.addScaledVector(fwd, -G * fwd.y);     // + gravity compensation ⟂ nose
+  const Lr = _st.dot(right), Lu = _st.dot(up);
+  const rollErr = Math.atan2(Lr, Lu);
+  const Lmag = Math.hypot(Lr, Lu);
+  // roll-rate command with damping (a plain P gain here oscillates through the control lags)
+  let roll = clamp((rollErr * 3.2 - (fm.wr || 0) * 0.45) / s.rollRate, -1, 1);
+  const aligned = Math.cos(rollErr);
+  let pitch;
+  if (aligned > 0) pitch = clamp((Lmag * aligned * aligned - G * clamp(up.y, 0, 1)) / ((s.gMax - 1) * G), -0.4, maxPull);
+  else pitch = Lmag < 1.5 * G ? clamp(Lmag * aligned / ((s.gNeg + 1) * G), -0.5, 0) : 0;
+  // small errors: push/pull directly instead of rolling a long way round
+  if (off < 0.12 && Math.abs(rollErr) > 1.2 && danger < 0.05) {
+    roll = clamp((-Math.atan2(-right.y, up.y) * 3 - (fm.wr || 0) * 0.45) / s.rollRate, -1, 1);
+    pitch = clamp(want.dot(up) * 6, -0.5, 0.5);
+  }
+  inp.yaw = off < 0.06 ? clamp(want.dot(right) * 8, -1, 1) : 0;
+  // do not pull the aircraft below fighting speed unless the ground demands it
+  if (danger < 0.05 && V < s.vStall * 1.3) pitch = Math.min(pitch, 0.12);
+  inp.pitch += (pitch - inp.pitch) * k;
+  inp.roll += (roll - inp.roll) * k;
+  return inp;
 }

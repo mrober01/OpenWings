@@ -138,6 +138,69 @@ for (const key of Object.keys(AIRCRAFT_SPECS)) {
     check('landing', td && !fm.crashed && fm.speed < 0.5, `td ${JSON.stringify(td)} crashed ${fm.crashed} v ${fm.speed.toFixed(1)}`);
   }
 }
+
+// ---- carrier: deck surface, catapult, arrestor run-out, ramp strike, RCS in thin air ----
+{
+  console.log('\n== carrier');
+  const { Carrier, DECK_Y, CATS } = await import('../src/world/Carrier.js');
+  const cv = new Carrier({ x: 0, z: 0, heading: 0.4 });
+  const sea = { ground(x, z, o) { if (cv.onDeck(x, z)) { o.y = DECK_Y; o.water = false; o.runway = true; o.slope = 0; o.carrier = cv; } else { o.y = 0; o.water = true; o.runway = false; o.slope = 0; o.carrier = null; } return o; } };
+  const g = sea.ground(0, 0, {});
+  check('deck under the ship', g.carrier === cv && g.y === DECK_Y, JSON.stringify({ y: g.y }));
+  check('water beside it', !sea.ground(cv.x + 300, cv.z + 300, {}).carrier, '');
+  { const w = cv.toWorld(-20, 27); check('island is solid', !!cv.solidAt(w.x, DECK_Y + 10, w.z), 'no hit'); }
+  // catapult: held, then flung off the bow at flying speed, and flying afterwards
+  for (const key of ['f22', 'a10', 'spitfire']) {
+    const { spec, fm, obj } = mk(key), pose = cv.catPose(0, {});
+    obj.position.set(pose.x, DECK_Y + spec.bellyH + spec.gearH, pose.z);
+    obj.quaternion.setFromEuler(new THREE.Euler(0, -pose.heading, 0));
+    const v = Math.max(spec.vStall * 0.85 * 1.55, 45);
+    fm.cat = { dirX: Math.sin(pose.heading), dirZ: -Math.cos(pose.heading), speed: v, accel: v * v / (2 * pose.stroke), stroke: pose.stroke, dist: 0, fired: false };
+    for (let t = 0; t < 2; t += DT) fm.step(obj, inp(), DT, sea);
+    check(key + ' holdback', fm.speed < 1 && fm.onGround, `v ${fm.speed.toFixed(1)}`);
+    fm.cat.fired = true;
+    let minY = 1e9;
+    for (let t = 0; t < 12; t += DT) { fm.step(obj, inp(), DT, sea); if (!fm.onGround) minY = Math.min(minY, obj.position.y); }
+    console.log(`   cat ${key}: ${fm.speed.toFixed(0)} m/s after 12 s, lowest ${minY.toFixed(1)} m, alt ${obj.position.y.toFixed(0)} m`);
+    check(key + ' cat launch', !fm.crashed && !fm.onGround && minY > 10 && obj.position.y > 20, `crashed ${fm.crashed} minY ${minY.toFixed(1)}`);
+  }
+  // arrestor wire: from 70 m/s at full power, stopped within the run-out
+  {
+    const { spec, fm, obj } = mk('f22');
+    const L = cv.landing, p0 = cv.toWorld(-140, -2);
+    obj.position.set(p0.x, DECK_Y + spec.bellyH + spec.gearH, p0.z);
+    obj.quaternion.setFromEuler(new THREE.Euler(0, -L.heading, 0));
+    fm.velocity.set(L.dirX * 70, 0, L.dirZ * 70);
+    fm.arrest = { v0: 70, run: 70 * 70 / 54, s: 0 };
+    const x0 = obj.position.clone();
+    for (let t = 0; t < 6; t += DT) fm.step(obj, inp({ throttle: 0.9 }), DT, sea);
+    const run = Math.hypot(obj.position.x - x0.x, obj.position.z - x0.z);
+    console.log(`   trap: stopped in ${run.toFixed(0)} m (planned ${fm.arrest.run.toFixed(0)})`);
+    check('arrest stops the jet', fm.speed < 0.5 && Math.abs(run - fm.arrest.run) < 6 && !fm.crashed, `v ${fm.speed.toFixed(1)} run ${run.toFixed(0)}`);
+  }
+  // flying into the stern below deck level is a ramp strike
+  {
+    const { spec, fm, obj } = mk('ef2000'), p0 = cv.toWorld(-200, 2);
+    obj.position.set(p0.x, DECK_Y - 3, p0.z);
+    obj.quaternion.setFromEuler(new THREE.Euler(0, -cv.heading, 0));
+    fm.setAirborne(obj, 70); fm.gearDown = true; fm.gearPos = 1;
+    for (let t = 0; t < 2 && !fm.crashed; t += DT) fm.step(obj, inp({ throttle: 0.6 }), DT, sea);
+    check('ramp strike', fm.crashed === 'ship', `crashed ${fm.crashed}`);
+  }
+  // wingtip RCS: in near-vacuum the stick turns the jet only with the thrusters
+  {
+    const turn = (rcs) => {
+      const { fm, obj } = mk('f22');
+      obj.position.set(0, 60000, 0); fm.setAirborne(obj, 400); fm.rcs = rcs;
+      const q0 = obj.quaternion.clone();
+      for (let t = 0; t < 1.5; t += DT) fm.step(obj, inp({ pitch: 1 }), DT, env);
+      return q0.angleTo(obj.quaternion) * 57.3;
+    };
+    const off = turn(0), on = turn(1);
+    console.log(`   space: pull for 1.5 s turns ${off.toFixed(1)} deg without RCS, ${on.toFixed(1)} deg with`);
+    check('RCS steers in space', on > 30 && off < 10, `${off.toFixed(1)} / ${on.toFixed(1)}`);
+  }
+}
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 console.log(failed ? `\n${failed} CHECK(S) FAILED` : '\nALL FLIGHT CHECKS PASSED');
 process.exit(failed ? 1 : 0);

@@ -9,6 +9,7 @@ import { Weapons, MISSILE, leadSolution } from './Weapons.js';
 import { Effects } from './Effects.js';
 import { makeAircraft, makeGround, wreckGround } from './Entities.js';
 import { buildAircraft } from '../aircraft/AircraftFactory.js';
+import { AIRCRAFT_SPECS } from '../aircraft/AircraftSpecs.js';
 import { MISSIONS, DIFFICULTY } from './Missions.js';
 import { CameraRig, VIEW_NAMES } from './CameraRig.js';
 import { Hud } from '../ui/Hud.js';
@@ -16,6 +17,9 @@ import { Cockpit } from '../aircraft/Cockpit.js';
 import { AIPilot } from './AIPilot.js';
 import { clamp } from './utils.js';
 import { Ejection } from './Ejection.js';
+import { WIRES, LANE, DECK_Y, PARKED } from '../world/Carrier.js';
+import { AB_DETENT } from './FlightModel.js';
+import { Autopilot, AP_LABELS } from './Autopilot.js';
 
 // hung-missile "hack": a motor fired with the pylon latches locked stays on the rail and pushes
 // stock: a short kick. 'extended' (burn limiter overridden in flight — hold LATCH): the motor runs its whole
@@ -39,11 +43,14 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const _e = new THREE.Euler();
 const gi = { y: 0, water: false, runway: false, slope: 0 };
 const _nearB = [];
+const _ln = { t: 0, s: 0 };
 const NEUTRAL = { pitch: 0, roll: 0, yaw: 0, throttle: 0.7, brake: false, fire: false };
 const CRASH_TEXT = {
   water: 'DITCHED IN THE SEA', gear: 'GEAR-UP LANDING', impact: 'HIT THE GROUND TOO HARD',
-  attitude: 'BAD LANDING ATTITUDE', terrain: 'FLEW INTO TERRAIN',
+  attitude: 'BAD LANDING ATTITUDE', terrain: 'FLEW INTO TERRAIN', ship: 'RAMP STRIKE · HIT THE SHIP',
 };
+const HOOK_AFT = 0.55;           // tail hook point behind the CG, as a fraction of the aircraft radius
+const CAT_SPOOL = 1.0;           // s at full power on the catapult before the shot
 
 export class Game {
   constructor(engine, settings, audio) {
@@ -98,10 +105,15 @@ export class Game {
     this.waypoint = null; this.navField = null; this.target = null; this.lock = 0;
     this.result = null; this.endT = 0; this.gloc = 0; this._rearm = 0;
     this.clearEjection();
+    this.ap = null; this._apGrab = 0;
+    this._catT = 0; this._hookT = NaN; this._trap = null; this._wireClearT = 0; this._launching = false;
     this.latch = false; this.override = false; this._scorchSaid = false; this._latchDown = null; this.guard = 0; this._altBand = 0; this._ejectArm = -9; this._peak = 0; this._reentry = false;
 
     const p = makeAircraft(aircraftKey, 0, { player: true, assist: s.get('assist') });
     p.hung = [];
+    p.hasRcs = !!(p.spec.missileCount && p.spec.type === 'jet');
+    p.rcs = p.hasRcs ? 1 : 0;      // wingtip RCS grain left 0..1
+    this.motorsCut = false; this._rcsSaid = false;
     this.player = p;
     this.scene.add(p.obj);
     this.units.push(p);
@@ -157,6 +169,9 @@ export class Game {
       this._envKey = envKey;
       this.effects.setAtmosphere(this.env);
       if (this.engine.post) this.engine.post.setGrade(this.env.atmo);
+      // everything you can navigate to / land on: the three airfields and the carrier's angled deck
+      this.navFields = this.env.carrier ? [...this.env.airfields, this.env.carrier.landing] : [...this.env.airfields];
+      this.buildDeckPark();
       this.buildMap();
     }
     if (!this.weapons) {
@@ -235,6 +250,8 @@ export class Game {
   placePlayer(o) {
     const p = this.player, s = p.spec, fm = p.fm, obj = p.obj;
     let hdg = o.heading || 0;
+    if (o.carrier) { this.spotOnCat(o.cat || 0, o.carrier); return; }
+    fm.cat = null; fm.arrest = null; fm.onCarrier = null;
     if (o.airfield) {
       const a = o.airfield, s0 = -a.length / 2 + 120;
       hdg = a.heading;
@@ -255,6 +272,33 @@ export class Game {
     obj.quaternion.setFromEuler(_e.set(0, -hdg, 0));
     fm.setAirborne(obj, speed);
     if (o.final) { fm.throttle = 0.45; fm.thrEff = 0.45; }
+  }
+
+  /** Home base: the carrier on carrier maps, else the home airfield. Has x, z, y, heading like an airfield. */
+  homeBase() {
+    const cv = this.env.carrier;
+    return cv && this.env.map.carrierHome ? cv.landing : this.env.airfields[0];
+  }
+
+  /** Put the player on a bow catapult, held by the holdback bar (helicopters: a spot on the bow). */
+  spotOnCat(i = 0, cv = this.env.carrier) {
+    const p = this.player, s = p.spec, fm = p.fm, obj = p.obj;
+    const pose = cv.catPose(i, {});
+    if (s.type === 'heli') { cv.toWorld(118, 0, pose); }
+    fm.velocity.set(0, 0, 0);
+    fm.onGround = true; fm.onRunway = true; fm.onCarrier = cv;
+    fm.gearDown = true; fm.gearPos = 1; fm.hookDown = false; fm.hookPos = 0; fm.arrest = null;
+    fm.wp = fm.wr = fm.wy = 0;
+    obj.position.set(pose.x, DECK_Y + s.bellyH + s.gearH * (s.type === 'heli' ? 0 : 1), pose.z);
+    obj.quaternion.setFromEuler(_e.set(0, -pose.heading, 0));
+    fm.cat = null;
+    if (s.type !== 'heli') {
+      // launch speed ~1.55 x the flaps-down stall, over the 100 m stroke
+      const v = Math.max(s.vStall * 0.85 * 1.55, 45);
+      fm.cat = { dirX: Math.sin(pose.heading), dirZ: -Math.cos(pose.heading), speed: v, accel: v * v / (2 * pose.stroke), stroke: pose.stroke, dist: 0, fired: false, i, x: pose.x, z: pose.z };
+    }
+    this._catT = 0; this._launching = false; this._trap = null;
+    this.navField = cv.landing;
   }
 
   spawnAir(key, team, o = {}) {
@@ -347,6 +391,15 @@ export class Game {
     this.say(fm.gearDown ? 'GEAR DOWN' : 'GEAR UP');
   }
 
+  toggleHook() {
+    if (!this.flying) return;
+    const fm = this.player.fm;
+    if (this.player.spec.type === 'heli') return;
+    fm.hookDown = !fm.hookDown;
+    this.audio.play('gear');
+    this.say(fm.hookDown ? 'HOOK DOWN' : 'HOOK UP');
+  }
+
   dropFlare() {
     const p = this.player;
     if (!this.flying || p.flares <= 0) return;
@@ -409,6 +462,20 @@ export class Game {
     this.guard += (want - this.guard) * Math.min(1, this.dtLast * 10 || 1);
   }
 
+  /**
+   * MOTOR CUT-OFF hack (key U / MTR): with the latches locked, vent the chamber of every motor on the
+   * rails — burning motors go out and keep their remaining grain, the wingtip RCS goes cold. Again = relight.
+   */
+  toggleMotors() {
+    const p = this.player;
+    if (!this.flying || !p.spec.missileCount) return;
+    if (!this.latch) { this.say('LOCK THE PYLON LATCHES FIRST (TAP LATCH)', 'warn'); return; }
+    this.motorsCut = !this.motorsCut;
+    this.audio.play(this.motorsCut ? 'click' : 'missile');
+    const n = p.hung.length;
+    this.say(this.motorsCut ? `MOTOR CUT-OFF · ${n ? n + ' MOTOR' + (n > 1 ? 'S' : '') + ' OUT, GRAIN SAVED' : 'RAIL MOTORS + RCS SAFE'}` : `MOTORS ARMED${n ? ' · ' + n + ' RELIT' : ''}`, this.motorsCut ? 'warn' : 'good');
+  }
+
   /** Light a missile motor that cannot leave the rail: a few seconds of extra thrust. */
   hangFire(p) {
     if (p.missiles <= 0) { this.say('NO MISSILES', 'warn'); return; }
@@ -449,6 +516,7 @@ export class Game {
 
   clearEjection() {
     if (this.ejection) { this.ejection.dispose(); this.ejection = null; }
+    this.ap = null;
   }
 
   cycleTarget() {
@@ -469,7 +537,7 @@ export class Game {
 
   cycleNav() {
     if (!this.flying) return;
-    const a = this.env.airfields, i = a.indexOf(this.navField);
+    const a = this.navFields, i = a.indexOf(this.navField);
     this.navField = a[(i + 1) % a.length];
     this.say('NAV · ' + this.navField.name);
   }
@@ -515,6 +583,7 @@ export class Game {
     if (this.state === 'playing' && this.ui) input = this.ui.getInput();
     else NEUTRAL.throttle = p.fm.throttle;
     if (this.autopilot && p.alive && this.state === 'playing') input = this.autoInput(dt);
+    else if (this.ap && p.alive && this.state === 'playing' && !this.ejection) input = this.apInput(input, dt);
     if (this.ejection) { PILOTLESS.throttle = p.fm.throttle; input = PILOTLESS; this.ejection.update(dt, env); }
 
     if (p.alive) this.updatePlayer(p, input, dt);
@@ -593,6 +662,7 @@ export class Game {
     fm.boost = 0; fm.boostYaw = 0;
     for (let i = p.hung.length - 1; i >= 0; i--) {
       const h = p.hung[i];
+      if (this.motorsCut) continue;          // vented: out, grain kept for a relight
       h.t += dt;
       if (h.t > h.burn) { p.hung.splice(i, 1); if (!p.hung.length && !this.ejection) this.say('MOTORS BURNT OUT'); continue; }
       fm.boost += h.accel * (1 + h.vac * (1 - Math.min(1, fm.rho))); fm.boostYaw -= h.side * HUNG_YAW;
@@ -604,6 +674,17 @@ export class Game {
     }
     this.dtLast = dt;
     this.updateLatch();
+    // wingtip RCS: with the latches locked, the two tip rounds vent sideways and steer the jet in thin air
+    const rcsOn = p.hasRcs && this.latch && !this.motorsCut && p.rcs > 0 && fm.rho < 0.35 && !fm.onGround && !this.ejection;
+    fm.rcs = rcsOn ? 1 : 0;
+    p.rcsPuff = 0;
+    if (rcsOn) {
+      const use = 0.1 + Math.abs(input.pitch) + Math.abs(input.roll) + Math.abs(input.yaw) * 0.5;
+      p.rcs = Math.max(0, p.rcs - use * dt / 45);
+      p.rcsPuff = use - 0.1;
+      if (!this._rcsSaid) { this._rcsSaid = true; this.say('RCS LIVE · WINGTIP MOTORS STEER THE JET · U = MOTORS OFF', 'good'); }
+      if (p.rcs <= 0) this.say('RCS GRAIN SPENT', 'warn');
+    }
     if (p.hung.length) this.cam.shake = Math.max(this.cam.shake, 0.3);
     fm.step(p.obj, input, dt, env);
     // climbing out of the atmosphere
@@ -618,6 +699,15 @@ export class Game {
     }
     for (const ev of fm.events) {
       if (ev.type === 'touchdown') this.onTouchdown(p, ev);
+      else if (ev.type === 'catEnd') { if (ev.speed) this.say(`CAT SHOT · ${Math.round(ev.speed * 1.944)} KT`, 'good'); }
+      else if (ev.type === 'arrested') this.onArrested(p);
+      else if (ev.type === 'liftoff' && this._launching) this._launching = false;
+      else if (ev.type === 'liftoff' && ev.carrier && this._trap && !fm.arrest) {
+        this._trap = null;
+        this.say('BOLTER! BOLTER! BOLTER! · POWER UP, GO AROUND', 'warn');
+        this.audio.play('warn');
+        if (this.mission && this.mission.onBolter) this.mission.onBolter();
+      }
       else if (ev.type === 'flameout') { if (!this.ejection) { this.say('ENGINE FLAMEOUT — NOT ENOUGH AIR TO BREATHE', 'danger'); this.audio.play('warn'); } }
       else if (ev.type === 'relight') { if (!this.ejection) this.say('ENGINE RELIGHT', 'good'); }
       else if (ev.type === 'crash') {
@@ -630,13 +720,16 @@ export class Game {
     // buildings are solid
     const hb = env.buildingAt(p.pos.x, p.pos.y, p.pos.z, p.radius * 0.35);
     if (hb) { this.hitBuilding(p, hb); if (!p.alive) return; }
+    if (env.carrier) { this.updateCarrier(p, dt); if (!p.alive) return; }
 
     // stopped on a runway: ground crew turn the jet around
-    if (fm.onGround && fm.onRunway && fm.speed < 1 && fm.throttle < 0.1) {
+    if (fm.onGround && fm.onRunway && fm.speed < 1 && fm.throttle < 0.1 && !fm.cat && !fm.arrest) {
       this._rearm += dt;
+      // on the boat, the deck crew then tow you back to a bow catapult
+      if (fm.onCarrier && this._rearm > 5 && p.spec.type !== 'heli') { this.spotOnCat(0, fm.onCarrier); this.say('DECK CREW SPOTTED YOU ON CAT 1 · FULL POWER TO LAUNCH', 'good'); this._rearm = 3.5; }
       const s = p.spec;
-      if (this._rearm > 3 && (fm.fuel < 99 || p.hp < p.maxHp || p.gun < s.gunAmmo || p.missiles < s.missileCount || p.flares < s.flares)) {
-        fm.fuel = 100; p.hp = p.maxHp; p.gun = s.gunAmmo; p.missiles = s.missileCount; p.flares = s.flares;
+      if (this._rearm > 3 && (fm.fuel < 99 || p.hp < p.maxHp || p.gun < s.gunAmmo || p.missiles < s.missileCount || p.flares < s.flares || p.rcs < (p.hasRcs ? 1 : 0))) {
+        fm.fuel = 100; p.rcs = p.hasRcs ? 1 : 0; this._rcsSaid = false; p.hp = p.maxHp; p.gun = s.gunAmmo; p.missiles = s.missileCount; p.flares = s.flares;
         fm.engineHealth = 1; fm.rollBias = 0;
         this.audio.play('rearm');
         this.say('REFUELLED · REARMED · REPAIRED', 'good');
@@ -661,6 +754,74 @@ export class Game {
     this.animate(p, dt, input);
   }
 
+  /** Catapult, arrestor wires, the island. Called every frame while the map has a carrier. */
+  updateCarrier(p, dt) {
+    const fm = p.fm, cv = this.env.carrier, pos = p.pos;
+    if (cv.solidAt(pos.x, pos.y, pos.z, p.radius * 0.3)) { this.crashPlayer('HIT THE CARRIER ISLAND', false); return; }
+    // on the catapult: the holdback bar keeps you there until you have been at full power a moment
+    const c = fm.cat;
+    if (c && !c.fired) {
+      pos.x = c.x; pos.z = c.z; fm.velocity.set(0, 0, 0);
+      const full = fm.throttle >= (p.spec.ab > 1 ? AB_DETENT - 0.02 : 0.95) && fm.thrEff > 0.85;
+      this._catT = full ? this._catT + dt : 0;
+      if (this._catT > CAT_SPOOL) {
+        c.fired = true; this._launching = true; this._trap = null;
+        this.audio.play('missile');
+        this.cam.shake = Math.max(this.cam.shake, 0.9);
+      }
+    }
+    // tail hook: catch the first wire the hook point crosses while it is on (or just above) the deck
+    _f.set(0, 0, -1).applyQuaternion(p.obj.quaternion);
+    const hx = pos.x - _f.x * p.radius * HOOK_AFT, hz = pos.z - _f.z * p.radius * HOOK_AFT;
+    const ln = cv.lane(hx, hz, _ln), prevT = this._hookT;
+    this._hookT = Math.abs(ln.s) < LANE.hw + 2 && ln.t > -40 && ln.t < LANE.len ? ln.t : NaN;
+    if (fm.onGround && fm.onCarrier && !fm.cat && !fm.arrest && !this._launching && fm.speed > 15) this._trap = this._trap || { t: this.time };
+    if (fm.hookPos > 0.85 && !fm.arrest && prevT === prevT && this._hookT === this._hookT && (fm.onGround || fm.altitudeAGL < 0.5)) {
+      for (let w = 0; w < WIRES.length; w++) {
+        if (prevT < WIRES[w] && this._hookT >= WIRES[w]) {
+          const v0 = fm.speed;
+          if (v0 > 120) { this.say('HOOK SKIPPED THE WIRE · TOO FAST', 'warn'); break; }
+          fm.arrest = { v0, run: clamp(v0 * v0 / (2 * 27), 45, 100), s: 0, wire: w + 1 };
+          this._trap = null;
+          this.cam.shake = Math.max(this.cam.shake, 1);
+          this.audio.play('touchdown', { hard: 0.7 });
+          this.say(`TRAPPED · ${w + 1} WIRE${w === 2 ? ' · OK PASS' : ''}`, 'good');
+          if (this.mission && this.mission.onTrap) this.mission.onTrap({ wire: w + 1, speed: v0, lat: ln.s, td: this._lastTd });
+          break;
+        }
+      }
+    }
+    // stopped in the wire: idle the throttle and the wire is cleared
+    const a = fm.arrest;
+    if (a && a.stopped) {
+      this._wireClearT = fm.throttle < 0.1 ? this._wireClearT + dt : 0;
+      if (this._wireClearT > 1.2) { fm.arrest = null; fm.hookDown = false; this._wireClearT = 0; this.say('WIRE CLEAR · HOOK UP'); }
+    }
+  }
+
+  onArrested(p) {
+    this.say(`STOPPED · THROTTLE IDLE TO CLEAR THE WIRE`, 'good');
+    if (this.mission && this.mission.onArrested) this.mission.onArrested(p.fm.arrest);
+  }
+
+  /** Static jets parked on the carrier deck (scene objects, rebuilt with the world). */
+  buildDeckPark() {
+    for (const m of this.parked || []) this.scene.remove(m);
+    this.parked = [];
+    const cv = this.env.carrier;
+    if (!cv) return;
+    const keys = ['f22', 'ef2000', 'f22', 'su35', 'ef2000'], anim = { time: 0, gearPos: 1, thrEff: 0, ab: false, pitch: 0, roll: 0, yaw: 0, airbrake: 0, speed: 0, night: !!this.env.atmo.night, missiles: 0 };
+    PARKED.forEach(([f, r, ho], i) => {
+      const m = buildAircraft(keys[i % keys.length], { team: 0, lod: 'low' }), sp = AIRCRAFT_SPECS[keys[i % keys.length]];
+      const w = cv.toWorld(f, r, {});
+      m.position.set(w.x, DECK_Y + sp.bellyH + sp.gearH, w.z);
+      m.quaternion.setFromEuler(_e.set(0, -(cv.heading + ho), 0));
+      if (m.userData.update) m.userData.update(0.5, anim);
+      this.scene.add(m);
+      this.parked.push(m);
+    });
+  }
+
   onTouchdown(p, ev) {
     const fm = p.fm, a = this.nearestField(p.pos.x, p.pos.z);
     const dx = p.pos.x - a.x, dz = p.pos.z - a.z;
@@ -675,6 +836,14 @@ export class Game {
     this.effects.tyreSmoke(_a, p.vel);
     this.audio.play('touchdown', { hard: clamp(ev.sink / 5, 0, 1) });
     if (this.settings.get('haptics') && navigator.vibrate) navigator.vibrate(40);
+    this._lastTd = info;
+    if (fm.onCarrier || a.carrier) {
+      // carrier landings are flown into the deck: no flare, 600-900 ft/min is normal, the gear is built for it
+      if (fm.onCarrier) this.say(`ON DECK · ${Math.round(ev.sink * 197)} FT/MIN${fm.hookDown ? '' : ' · HOOK IS UP!'}`, fm.hookDown ? 'good' : 'warn');
+      if (ev.sink >= 6.2) this.damage(p, (ev.sink - 6.2) * 14, null);
+      if (this.mission && this.mission.onTouchdown) this.mission.onTouchdown(info);
+      return;
+    }
     const grade = ev.sink < 1.2 ? 'GREASER!' : ev.sink < 3.2 ? 'GOOD LANDING' : 'HARD LANDING';
     this.say(`${grade} · ${Math.round(ev.sink * 197)} FT/MIN${ev.runway ? '' : ' · OFF RUNWAY'}`, ev.sink < 3.2 ? 'good' : 'warn');
     if (ev.sink >= 3.5) this.damage(p, (ev.sink - 3.5) * 14, null);
@@ -692,6 +861,54 @@ export class Game {
     if (this.cam.view === 'cockpit') this.cam.setView('chase');
     if (this.settings.get('haptics') && navigator.vibrate) navigator.vibrate([80, 40, 160]);
     this.finish(false, reason);
+  }
+
+  /* ---- the player's autopilot (engine/Autopilot.js) ---- */
+
+  /** Engage autopilot `mode` (see AP_MODES); null / 'off' / the mode already flying = disengage. */
+  setAP(mode) {
+    if (!this.flying) return;
+    if (!mode || mode === 'off') { this.disengageAP('AUTOPILOT OFF'); return; }
+    if (this.ap && this.ap.mode === mode && mode !== 'landmark') { this.disengageAP('AUTOPILOT OFF'); return; }
+    const prevWp = this.ap ? this.ap.savedWaypoint : this.waypoint;
+    if (this.ap) this.waypoint = prevWp;
+    this.ap = new Autopilot(this, mode);
+    this.ap.savedWaypoint = prevWp;
+    this._apGrab = 0;
+    if (this.ui) this.ui.apLamp(true);
+    this.audio.play('click');
+    if (this.ap.done) { const m = this.ap.doneMsg; this.disengageAP(null); this.say(`AUTOPILOT · ${m}`, 'warn'); return; }
+    if (mode !== 'landmark' && mode !== 'land') this.say(`AUTOPILOT · ${AP_LABELS[mode]}`, 'good');
+  }
+
+  disengageAP(msg) {
+    if (!this.ap) return;
+    this.waypoint = this.ap.savedWaypoint;
+    this.ap = null;
+    if (this.ui) this.ui.apLamp(false);
+    // the throttle stays where the autopilot left it
+    if (this.ui && this.player) { this.ui.throttle = this.player.fm.throttle; this.ui.paintThrottle(); }
+    if (msg) { this.say(msg, 'warn'); this.audio.play('warn'); }
+  }
+
+  /** Autopilot input for this frame; a firm stick input from the pilot takes over. */
+  apInput(human, dt) {
+    // only a deliberate stick input takes over: on the touch stick a firm push held a moment
+    // (a thumb resting on the screen, a tap or a drag to look around does nothing); keys / pad / mouse: any real input
+    const touch = this.ui && this.ui.stick.on;
+    const lim = touch ? 0.65 : 0.3, hold = touch ? 0.45 : 0.2;
+    const grab = Math.abs(human.pitch) > lim || Math.abs(human.roll) > lim;
+    this._apGrab = grab ? this._apGrab + dt : 0;
+    if (this._apGrab > hold) { this.disengageAP('AUTOPILOT DISENGAGED · YOU HAVE CONTROL'); return human; }
+    const inp = this.ap.update(dt);
+    inp.fire = inp.fire || human.fire;
+    if (this.ap.done) {
+      const m = this.ap.doneMsg;
+      this.disengageAP(null);
+      this.say(`AUTOPILOT OFF · ${m}`, 'good');
+      this.audio.play('click');
+    }
+    return inp;
   }
 
   /** Test/demo hook: an AIPilot flies the player's aircraft (tests/play.mjs). */
@@ -734,6 +951,7 @@ export class Game {
       if (u.fm.crashed) { this.kill(u, u.lastHitBy && this.time - u.lastHitT < 12 ? u.lastHitBy : null, true); continue; }
       const hb = env.buildingAt(u.pos.x, u.pos.y, u.pos.z, u.radius * 0.35);
       if (hb) { this.hitBuilding(u, hb); if (!u.alive) continue; }
+      if (env.carrier && env.carrier.solidAt(u.pos.x, u.pos.y, u.pos.z, u.radius * 0.3)) { this.kill(u, null, true); continue; }
 
       if (ai.wantFire && u.gun > 0) this.fireGun(u, dt, 0.007);
       else u.gunCd = Math.max(0, u.gunCd - dt);
@@ -1013,6 +1231,8 @@ export class Game {
       a.pitch = input.pitch; a.roll = input.roll; a.yaw = input.yaw;
       a.airbrake = fm.airbrake; a.speed = fm.speed; a.night = !!this.env.atmo.night; a.onGround = fm.onGround;
       a.missiles = u.missiles + (u.hung ? u.hung.length : 0);
+      a.hook = fm.hookPos;
+      if (u.isPlayer) a.rcs = u.rcs;
       ud.update(dt, a);
       return;
     }
@@ -1055,9 +1275,14 @@ export class Game {
           if (frac < 0.18 && Math.random() < 0.5) fx.flame(_a, u.vel, 1);
         }
       }
+      // wingtip RCS puffs
+      if (u.rcsPuff > 0.05 && ud.wingtips && Math.random() < 0.5 + u.rcsPuff) {
+        for (const wt of ud.wingtips) { _a.copy(wt).applyQuaternion(q).add(pos); fx.missileSmoke(_a, u.vel); if (Math.random() < 0.3) fx.flame(_a, u.vel, 0.35); }
+      }
       // hung missile motors: flame + smoke off the pylon
       if (u.hung && u.hung.length) {
         for (const h of u.hung) {
+          if (this.motorsCut) break;
           _a.set(h.side * u.radius * 0.35, -u.radius * 0.14 - 0.6, 2.2).applyQuaternion(q).add(pos);
           fx.flame(_a, u.vel, 0.7);
           h.trail += fm.speed * dt;
@@ -1161,8 +1386,11 @@ export class Game {
     o.throttle = fm.throttle; o.thrEff = fm.thrEff; o.ab = fm.ab; o.hasAB = sp.ab > 1;
     o.fuel = fm.fuel; o.hp = clamp(p.hp / p.maxHp, 0, 1);
     o.gearDown = fm.gearDown; o.gearPos = fm.gearPos; o.onGround = fm.onGround; o.stalled = fm.stalled;
-    o.airbrake = fm.airbrake; o.isHeli = sp.type === 'heli';
+    o.airbrake = fm.airbrake; o.isHeli = sp.type === 'heli'; o.hook = fm.hookPos;
+    o.cat = fm.cat ? (fm.cat.fired ? 2 : 1) : 0; o.arrest = !!fm.arrest;
     o.flameout = fm.flameout; o.rho = fm.rho;
+    s.ap = this.ap ? this.ap.status : '';
+    s.rcs = p.hasRcs ? p.rcs : -1; s.rcsOn = fm.rcs > 0; s.motorsCut = !!this.motorsCut;
     s.latch = !!this.latch; s.boost = p.hung ? p.hung.length : 0; s.override = !!this.override; s.guard = this.guard;
     s.input.pitch = input.pitch; s.input.roll = input.roll; s.input.yaw = input.yaw;
 
@@ -1199,13 +1427,14 @@ export class Game {
       nv.name = a.name; nv.pos.set(a.x, a.y, a.z);
       nv.dist = Math.hypot(dx, dz); nv.bearing = (Math.atan2(-dx, dz) + TAU) % TAU;
       const along = dx * a.dirX + dz * a.dirZ;
-      if (Math.abs(along) > a.length / 2 + 200 && !fm.onGround) this._ilsSgn = along < 0 ? 1 : -1;
-      const sgn = this._ilsSgn, lx = a.dirX * sgn, lz = a.dirZ * sgn;
+      if (a.oneWay) this._ilsSgn = 1;      // the carrier's angled deck is landed one way only
+      else if (Math.abs(along) > a.length / 2 + 200 && !fm.onGround) this._ilsSgn = along < 0 ? 1 : -1;
+      const sgn = a.oneWay ? 1 : this._ilsSgn, lx = a.dirX * sgn, lz = a.dirZ * sgn;
       nv.rwyHeading = (a.heading + (sgn < 0 ? Math.PI : 0)) % TAU;
-      const sAl = dx * lx + dz * lz, dAim = (-a.length / 2 + 300) - sAl, lat = dx * -lz + dz * lx;
+      const sAl = dx * lx + dz * lz, dAim = (-a.length / 2 + (a.aim ?? 300)) - sAl, lat = dx * -lz + dz * lx;
       if (!fm.onGround && dAim > 30 && dAim < 25000 && Math.abs(lat) < dAim * 0.7 + 300) {
         s._ils.loc = Math.atan2(lat, dAim + a.length);
-        s._ils.gs = Math.atan2(p.pos.y - sp.bellyH - sp.gearH - a.y, dAim) - 3 * Math.PI / 180;
+        s._ils.gs = Math.atan2(p.pos.y - sp.bellyH - sp.gearH - a.y, dAim) - (a.glide ?? 3 * Math.PI / 180);
         nv.ils = s._ils;
       } else nv.ils = null;
       s.nav = nv;
@@ -1270,7 +1499,7 @@ export class Game {
 
   nearestField(x, z, friendly = false) {
     let best = null, bd = Infinity;
-    for (const a of this.env.airfields) {
+    for (const a of this.navFields || this.env.airfields) {
       if (friendly && a.role === 'enemy') continue;
       const d = Math.hypot(a.x - x, a.z - z);
       if (d < bd) { bd = d; best = a; }
@@ -1311,7 +1540,7 @@ export class Game {
       ctx.putImageData(g, 0, 0);
     } else if (hf.city) { ctx.fillStyle = 'rgba(190,190,200,0.8)'; ctx.fillRect((hf.city.x + half) / step - 4, (hf.city.z + half) / step - 4, 8, 8); }
     this.hs.map.canvas = c;
-    this.hs.map.airfields = this.env.airfields;
+    this.hs.map.airfields = this.navFields;
   }
 }
 

@@ -7,6 +7,7 @@
 // so what you see is exactly what you collide with.
 import { SimplexNoise } from './SimplexNoise.js';
 import { MAPS, SEA_FLOOR, realGrid } from './Maps.js';
+import { placeCarrier } from './Carrier.js';
 
 export const WORLD_SIZE = 40000;   // metres, square, centred on the origin
 export const GRID = 512;           // cells per side at full resolution
@@ -35,6 +36,8 @@ export class Heightfield {
     this.city = null;
     if (this.map.sites) this.placeRealSites(); else this.placeSites();
     if (this.map.urban) this.initUrban();
+    // every map ends in sea, so every map gets an aircraft carrier offshore (world/Carrier.js)
+    this.carrier = placeCarrier(this);
   }
 
   /* ---------------- noise helpers ---------------- */
@@ -109,10 +112,16 @@ export class Heightfield {
   }
 
   /**
-   * Surface under (x,z): fills out = { y, water, runway, slope }. Runways, taxiways
-   * and aprons are hard level surfaces. Shared by the game and the node tests.
+   * Surface under (x,z): fills out = { y, water, runway, slope, carrier }. Runways, taxiways,
+   * aprons and the carrier's flight deck (carrier = the Carrier) are hard level surfaces. Shared by the game and the node tests.
    */
   ground(x, z, out) {
+    const cv = this.carrier;
+    if (cv && cv.onDeck(x, z)) {
+      out.y = cv.y; out.water = false; out.runway = true; out.slope = 0; out.carrier = cv;
+      return out;
+    }
+    out.carrier = null;
     const h = this.height(x, z);
     out.water = h <= 0.2;
     out.y = out.water ? 0 : h;

@@ -9,7 +9,11 @@
 //
 // Input convention (all -1..1):  pitch + = pull / nose up,  roll + = right,
 // yaw + = nose right, throttle 0..1 (top 8 % = afterburner where fitted),
-// brake = airbrake in flight / wheel brakes on the ground.
+// brake = airbrake (in flight and on the ground) + wheel brakes on the ground.
+//
+// Carrier ops (driven by Game.js, geometry in world/Carrier.js): `cat` holds the aircraft on a catapult
+// and then flings it down the stroke; `arrest` is a caught wire that stops it in a fixed run-out;
+// `hookDown` lowers the tail hook. Flying into the side of the ship below deck level is a crash.
 import * as THREE from 'three';
 import { clamp } from './utils.js';
 
@@ -20,8 +24,8 @@ export const AB_DETENT = 0.92;
 const fwd = new THREE.Vector3(), up = new THREE.Vector3(), right = new THREE.Vector3();
 const vhat = new THREE.Vector3(), liftDir = new THREE.Vector3(), tmp = new THREE.Vector3();
 const dq = new THREE.Quaternion();
-const gi = { y: 0, water: false, runway: false, slope: 0 };
-const gi2 = { y: 0, water: false, runway: false, slope: 0 };
+const gi = { y: 0, water: false, runway: false, slope: 0, carrier: null };
+const gi2 = { y: 0, water: false, runway: false, slope: 0, carrier: null };
 
 /**
  * Air density relative to sea level. Troposphere: scale height 9 km; above the tropopause
@@ -84,7 +88,12 @@ export class FlightModel {
     this.flameout = false;   // air-breathing engine died in the thin air (relights lower down)
     this.boost = 0;          // external rocket thrust (m/s², along the nose) — hung missile motors
     this.boostYaw = 0;       // yaw rate from asymmetric rocket thrust (rad/s, + = nose right)
+    this.rcs = 0;            // 0..1 rocket attitude control (wingtip RCS hack, set by Game) where the air is thin
     this.rho = 1;
+    this.hookDown = false; this.hookPos = 0;   // tail hook (carrier landings)
+    this.cat = null;         // { dirX, dirZ, speed, accel, stroke, dist, fired } while on a catapult
+    this.arrest = null;      // { v0, run, s } while an arrestor wire has the hook
+    this.onCarrier = null;   // the Carrier whose deck we are rolling on
     this.events.length = 0;
   }
 
@@ -123,6 +132,7 @@ export class FlightModel {
     this.ab = hasAB && this.throttle > AB_DETENT + 0.02 && this.thrEff > 0.93 && this.fuel > 0 && !this.flameout;
     this.fuel = Math.max(0, this.fuel - h * s.fuelBurn * (0.12 + this.thrEff) * (this.ab ? 3.2 : 1));
     this.gearPos += clamp((this.gearDown ? 1 : 0) - this.gearPos, -h / 2.5, h / 2.5);
+    this.hookPos += clamp((this.hookDown ? 1 : 0) - this.hookPos, -h / 1.2, h / 1.2);
   }
 
   basis(q) {
@@ -173,12 +183,14 @@ export class FlightModel {
 
     if (this.onGround) {
       // --- ground handling: direct rotation, nose-wheel steering ---
-      const canRotate = V > 0.72 * vs;
+      const canRotate = V > 0.72 * vs && !this.cat;
       if (input.pitch > 0.05 && canRotate) wPitch = pitchAng < 0.21 ? input.pitch * 0.28 : 0;
       // taildraggers sit nose-high at rest and the tail comes up as the speed builds
+      // catapult: the nose strut extends during the stroke, so the jet leaves the bow already at a flying attitude
+      else if (this.cat && this.cat.fired) wPitch = clamp((0.13 * clamp(V / this.cat.speed, 0, 1) - pitchAng) * 4, -0.5, 0.5);
       else wPitch = clamp(((s.tailSit || 0) * (1 - clamp((V / vs - 0.3) / 0.3, 0, 1)) - pitchAng) * 2.5, -0.3, 0.3);
       wRoll = clamp(-bank * 6, -2, 2);
-      const steer = clamp(input.yaw + input.roll, -1, 1);
+      const steer = this.cat || this.arrest ? 0 : clamp(input.yaw + input.roll, -1, 1);
       wYaw = steer * 0.55 * clamp(V / 6, 0, 1) * (22 / Math.max(V, 22));
     } else {
       // --- G-command pitch loop ---
@@ -219,6 +231,14 @@ export class FlightModel {
         wRoll += this._stallDir * 0.9;
       } else this._stallDir = 0;
       wYaw = input.yaw * 0.35 * auth + clamp(beta, -0.5, 0.5) * 3.2 * Math.max(authR, 0.15) + this.boostYaw;
+      // wingtip rocket thrusters: where the wings have nothing to bite on, the stick commands body
+      // rates directly (hands off = hold attitude) instead of the nose drifting onto the flight path
+      const kc = this.rcs * (1 - Math.min(auth, authR));
+      if (kc > 0) {
+        wPitch += (input.pitch * s.pitchRate * 0.7 - wPitch) * kc;
+        wRoll += (input.roll * s.rollRate * 0.5 - wRoll) * kc;
+        wYaw += (input.yaw * 0.5 + this.boostYaw - wYaw) * kc;
+      }
     }
 
     const kr = Math.min(1, h / 0.09);
@@ -228,7 +248,8 @@ export class FlightModel {
     this.rotate(obj, h);
 
     // --- forces ---
-    this.airbrake += ((input.brake && !this.onGround ? 1 : 0) - this.airbrake) * Math.min(1, h / 0.4);
+    // the speed brake opens on the ground too (rollout), where B also works the wheel brakes
+    this.airbrake += ((input.brake ? 1 : 0) - this.airbrake) * Math.min(1, h / 0.4);
     const sa = Math.sin(alpha);
     let cd = this.cd0 * (1 + 1.3 * this.gearPos + 3.0 * this.airbrake) + s.kn * clN * clN;
     if (Math.abs(alpha) > as) cd += 0.7 * sa * sa;
@@ -247,12 +268,15 @@ export class FlightModel {
     env.ground(pos.x, pos.z, gi);
     const gearH = s.bellyH + s.gearH * this.gearPos - (s.tailSit ? s.sitDrop * clamp(pitchAng / s.tailSit, 0, 1) * this.gearPos : 0);
     const floor = gi.y + gearH;
-    if (pos.y <= floor + 0.02) {
+    // on a catapult the shuttle holds the jet down on the deck
+    if (pos.y <= floor + 0.02 || (this.cat && this.onGround)) {
+      if (this.cat && this.onGround) pos.y = floor;
       if (!this.onGround) {
         env.ground(pos.x + v.x * 0.1, pos.z + v.z * 0.1, gi2);
         const sink = -v.y + Math.max(0, (gi2.y - gi.y) / 0.1);
         let why = null;
-        if (gi.water) why = 'water';
+        if (gi.carrier && floor - pos.y > 1.2) why = 'ship';       // below deck level: hit the side / round-down
+        else if (gi.water) why = 'water';
         else if (this.gearPos < 0.9) why = 'gear';
         else if (sink > s.crashSink) why = 'impact';
         else if (Math.abs(bank) > 0.32 || pitchAng < -0.16 || pitchAng > 0.45) why = 'attitude';
@@ -264,6 +288,7 @@ export class FlightModel {
       if (pos.y < floor) pos.y = floor;
       if (v.y < 0) v.y = 0;
       this.onRunway = gi.runway;
+      this.onCarrier = gi.carrier;
       if ((gi.water && V > 2) || (gi.slope > 0.32 && V > 14)) { this.crash(gi.water ? 'water' : 'terrain'); return; }
       // tyres: no sideways slip, rolling resistance, brakes
       tmp.set(right.x, 0, right.z);
@@ -271,7 +296,8 @@ export class FlightModel {
         tmp.normalize();
         v.addScaledVector(tmp, -v.dot(tmp) * Math.min(1, 12 * h));
       }
-      const braking = input.brake || (this.assist && this.throttle < 0.03);
+      if (this.cat) this.catapult(h);
+      const braking = !this.cat && (input.brake || (this.assist && this.throttle < 0.03));
       const dec = G * ((gi.runway ? 0.016 : 0.06) + (braking ? 0.42 : 0));
       const vh = Math.hypot(v.x, v.z);
       if (vh > 1e-3) {
@@ -281,8 +307,11 @@ export class FlightModel {
       if (vh < 0.6 && this.throttle < 0.08) { v.x = 0; v.z = 0; }
     } else if (this.onGround && pos.y > floor + 0.12) {
       this.onGround = false; this.onRunway = false;
-      this.events.push({ type: 'liftoff' });
+      this.events.push({ type: 'liftoff', carrier: this.onCarrier, cat: !!this.cat });
+      this.onCarrier = null;
+      if (this.cat) { this.cat = null; this.events.push({ type: 'catEnd' }); }
     }
+    if (this.arrest) this.arrested(h);
 
     this.finish(pos, V, rho, this.onGround ? 1 : L / G, gi.y + gearH, stalledNow);
   }
@@ -352,6 +381,35 @@ export class FlightModel {
     this.buffet = this.onGround ? 0 : clamp((Math.abs(this.aoa) - lim * 0.8) / (lim * 0.3), 0, 1);
   }
 
+  /** On a catapult: held by the holdback bar until fired, then driven down the stroke at constant g. */
+  catapult(h) {
+    const c = this.cat, v = this.velocity;
+    if (!c.fired) { v.x = 0; v.z = 0; return; }
+    const along = Math.max(0, v.x * c.dirX + v.z * c.dirZ);
+    const nv = Math.min(c.speed, along + c.accel * h);
+    v.x = c.dirX * nv; v.z = c.dirZ * nv;
+    c.dist += nv * h;
+    if (c.dist >= c.stroke) {
+      // shuttle at the end of the track: the launch bar drops off; a little nose-up kick as the jet leaves
+      this.cat = null;
+      this.events.push({ type: 'catEnd', speed: nv });
+    }
+  }
+
+  /** A wire has the hook: speed falls as sqrt(1 - s/run) (constant deceleration), whatever the throttle. */
+  arrested(h) {
+    const a = this.arrest, v = this.velocity;
+    const vh = Math.hypot(v.x, v.z);
+    if (a.s >= a.run || vh < 0.4) {
+      v.x = 0; v.z = 0;
+      if (!a.stopped) { a.stopped = true; this.events.push({ type: 'arrested' }); }
+      return;
+    }
+    a.s += vh * h;
+    const want = a.v0 * Math.sqrt(Math.max(0, 1 - a.s / a.run));
+    if (want < vh) { const k = want / vh; v.x *= k; v.z *= k; }
+  }
+
   crash(reason) {
     this.crashed = reason;
     this.destroyed = true;
@@ -360,7 +418,7 @@ export class FlightModel {
 
   /** Put the aircraft in a clean airborne state. */
   setAirborne(obj, speed) {
-    this.onGround = false;
+    this.onGround = false; this.onCarrier = null; this.cat = null; this.arrest = null;
     this.gearDown = false; this.gearPos = 0;
     this.thrEff = 0.75; this.throttle = 0.75;
     fwd.set(0, 0, -1).applyQuaternion(obj.quaternion);

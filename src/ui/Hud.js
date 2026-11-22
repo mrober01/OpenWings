@@ -300,6 +300,7 @@ export class Hud {
     }
     this._radar(s, own, hdg, time, nav, wpt);
     this._navBlock(nav);
+    this._apLine(s, time);
     this._warnings(s.warn || EMPTY, time, full);
   }
 
@@ -621,6 +622,9 @@ export class Hud {
     this._bar(bx, y - bh / 2, bw, bh, hp, hpCol);
     this._text(sInt(this.kHp, hp * 100), tx, y, hpCol);
     if (num(own.airbrake, 0) > 0.05) this._text('BRAKE', sx, y, GREEN);
+    const hk = num(own.hook, 0);
+    if (hk > 0.98) this._text('HOOK', sx + cw * 6, y, GREEN);
+    else if (hk > 0.02 && (time * 3) % 1 < 0.6) this._text('HOOK', sx + cw * 6, y, AMBER);
   }
 
   _mission(m) {
@@ -1029,6 +1033,29 @@ export class Hud {
         x += this._wWidthS[i] + gap;
       }
     }
+  }
+
+  /** Autopilot status + the rocket hacks (RCS grain, motor cut-off), low in the middle of the screen. */
+  _apLine(s, time) {
+    const ctx = this.ctx, u = this.u, x = this.L, lh = 14 * u;
+    const ap = typeof s.ap === 'string' ? s.ap : '';
+    const rcs = num(s.rcs, -1);
+    let hack = '';
+    if (s.motorsCut) hack = 'MOTORS CUT';
+    else if (s.rcsOn) hack = 'RCS ' + Math.round(rcs * 100) + '%';
+    if (!ap && !hack) return;
+    this._f(this.fS);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    // left column, under the mission objective and score lines
+    let y = this.T + 6 * u + lh * 6 + 8 * u;
+    if (ap) {
+      const str = 'AP · ' + ap, w = ctx.measureText(str).width + 12 * u, bh = 17 * u;
+      ctx.fillStyle = BACK; ctx.fillRect(x - 4 * u, y - bh / 2, w, bh);
+      ctx.lineWidth = 1; ctx.strokeStyle = GREEN; ctx.strokeRect(x - 4 * u + 0.5, y - bh / 2 + 0.5, w - 1, bh - 1);
+      this._text(str, x + 2 * u, y + 0.5, GREEN);
+      y += bh + 2 * u;
+    }
+    if (hack) this._text(hack, x, y, s.motorsCut ? AMBER : rcs < 0.2 && (time * 3) % 1 < 0.5 ? AMBER : GREEN);
   }
 
   /* ------------------------------------------------------------------ black-out / red-out */

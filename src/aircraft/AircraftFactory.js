@@ -60,7 +60,7 @@ const DEFS = {
       [6.5, 1.7, .7, .05], [8.2, 1.5, .45, .1], [8.3, .6, .2, .1]],
     canopy: [[-6.9, .05, .05, .8], [-6.2, .42, .4, .86], [-5.0, .52, .58, .93], [-3.9, .44, .42, .9], [-3.0, .1, .1, .82]],
     surfs: [
-      { r: [1.7, 0, -2.6, 8.0], t: [6.7, 0, 3.2, 1.6], th: .3, ctl: [['flaperon', .1, .5, .15, .23], ['ail', .52, .9, .23, .42]] },
+      { r: [1.7, 0, -2.6, 8.0], t: [6.7, 0, 3.2, 1.6], th: .3, ctl: [['flapBrake', .1, .5, .15, .23], ['ailUp', .52, .9, .23, .42]] },
       { r: [1.6, 0, 5.0, 3.6], t: [4.4, 0, 7.4, 1.2], th: .14, mv: 'tail' },
       { r: [1.5, .6, 3.4, 3.6], t: [2.9, 3.2, 5.6, 1.5], th: .16, c: 'accent', ctl: [['rudderBrake', .08, .9, .3, .36]] },
     ],
@@ -764,6 +764,16 @@ function airframe(key, def, team, full) {
     m.max = def.brake[4];
     movers.push(m);
   }
+  // tail hook (carrier landings): a bar under the rear fuselage, hinged at its front end, stowed flat
+  // along the belly; lowered it swings ~40 deg down with a yellow hook shoe at the tip
+  if (full && !def.rotor && !def.noPilot) {
+    const zs = def.body.map(b => b[0]), zEnd = Math.max(...zs), zh = zEnd - Math.min(3.4, (zEnd - Math.min(...zs)) * 0.2);
+    const [, hh, yc] = bodyAt(def.body, zh), yb = yc - hh - 0.06, L = Math.min(2.8, zEnd - zh + 0.5);
+    const o = { pos: [], nor: [], col: [] };
+    rod(o, [0, yb, zh], [0, yb, zh + L], 0.07, 0x2c2e30);
+    rod(o, [0, yb, zh + L - 0.12], [0, yb - 0.24, zh + L + 0.06], 0.085, 0xd8b020);
+    movers.push(hinged(o, new THREE.Vector3(0, yb, zh), new THREE.Vector3(1, 0, 0), 'hook', 1));
+  }
   for (const [x, y, z0, z1, r] of def.pods || []) {
     const L = z1 - z0;
     loft(out, [[z0 - 0.02, r * 0.5, r * 0.5, y, x], [z0, r * 0.82, r * 0.82, y, x], [z0 + L * 0.25, r, r, y, x], [z0 + L * 0.7, r, r, y, x], [z1, r * 0.72, r * 0.72, y, x], [z1 + 0.02, r * 0.3, r * 0.3, y, x]],
@@ -881,6 +891,20 @@ export function buildAircraft(key, opts = {}) {
     inner.add(m);
     return m;
   });
+
+  // wingtip RCS rounds (the "attitude thruster" hack): one small missile on each wingtip rail of
+  // missile-armed jets; their pinhole-vented motors steer the jet where there is no air
+  const rcsRounds = [];
+  if (full && spec.missileCount && spec.type === 'jet') {
+    let tipS = null;
+    for (const sf of def.surfs) if (!sf.mv && !sf.fx && Math.abs(sf.t[1] - sf.r[1]) < 1.5 && (!tipS || Math.abs(sf.t[0]) > Math.abs(tipS.t[0]))) tipS = sf;
+    if (tipS) for (const sd of [-1, 1]) {
+      const m = new THREE.Mesh(r.missile, r.skin);
+      m.position.set(sd * (Math.abs(tipS.t[0]) + 0.14), tipS.t[1] - 0.05, tipS.t[2] + tipS.t[3] * 0.5);
+      m.scale.setScalar(0.8);
+      inner.add(m); rcsRounds.push(m);
+    }
+  }
 
   const movers = geo.movers.map(m => {
     const mesh = new THREE.Mesh(m.geo, skinMat);
@@ -1096,10 +1120,14 @@ export function buildAircraft(key, opts = {}) {
         case 'rudderBrake': want = s.yaw * 0.4 + sx * brk * 0.45; break;         // F-22: rudders splay out as the airbrake
         case 'spoiler': want = -sx * (brk * 0.75 + Math.max(0, sx * s.roll) * 0.3); break;
         case 'brake': want = -brk * m.max; break;
+        case 'hook': want = (s.hook || 0) * 0.7; break;                           // swings down aft
+        case 'flapBrake': want = sx * (flap * 0.35 + brk * 0.4) - s.roll * 0.25; break;   // F-22 speed brake:
+        case 'ailUp': want = -s.roll * 0.38 - sx * brk * 0.55; break;              //   flaperons down, ailerons up
       }
       m.a += (want - m.a) * Math.min(1, dt * 10);
       m.mesh.quaternion.copy(m.quat).multiply(_q1.setFromAxisAngle(X_AXIS, m.a));
     }
+    for (let i = 0; i < rcsRounds.length; i++) rcsRounds[i].visible = (s.rcs ?? 1) > 0;
     // missiles on the rails disappear as they are fired (outer pair last)
     const left = s.missiles ?? missiles.length;
     for (let i = 0; i < missiles.length; i++) missiles[i].visible = i < left;
