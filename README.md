@@ -4,6 +4,12 @@
 
 **⬇ Download the game file (offline / phone copy):** [OpenWings.html](https://github.com/mrober01/OpenWings/releases/latest/download/OpenWings.html), open it in any browser
 
+<p align="center"><img src="docs/img/phone.png" width="620" alt="OpenWings on a phone: touch stick, throttle and buttons over the HUD"></p>
+
+📱 **Made for phones first.** Open the link on your phone, turn it sideways and fly: thumb stick on the left, throttle and
+weapons on the right (or tilt-to-fly). Nothing to install, no account, and the downloaded file works offline. Just as good on a
+PC with keyboard, mouse or gamepad.
+
 | | | |
 |---|---|---|
 | ![New York](docs/img/new-york.jpg) | ![Paris](docs/img/paris.jpg) | ![London at night](docs/img/london-night.jpg) |
