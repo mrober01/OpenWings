@@ -1,7 +1,6 @@
 node_modules/
 *.log
 .DS_Store
-.cptr/
 tests/tmp/
 dist/OpenWings.html
 tools/.cache/
