@@ -93,7 +93,7 @@ export class UI {
         `<b>TGT</b> picks a target, hold it in front until the diamond closes, then <b>MSL</b> · stop on a runway to rearm · ` +
         `<b>LATCH</b> + <b>MSL</b> = missile motor stays on the rail as a rocket boost · <b>hold LATCH</b> (latches locked) = override the motor burn limiter: long burns, scorched wing, enough to reach space · <b>EJECT</b> twice to bail out · <b>AUTO</b> = autopilot (take off, land, space, landmark, target, hold; drag anywhere to look around while it flies, AUTO → OFF to take over) · <b>HOOK</b> for carrier traps · <b>MTR</b> = motors on/off (latches locked; wingtip RCS steers you in space)`
       : `<b>W/S</b> pitch · <b>A/D</b> roll · <b>Q/E</b> rudder · <b>Shift/Ctrl</b> throttle (1-5 presets, 5 = afterburner) · <b>Space</b> gun · ` +
-        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · <b>K</b> tail hook · <b>O</b> autopilot (then 1-6; the mouse looks around while it flies, W/A/S/D take over) · <b>U</b> motor cut-off / relight (latches locked; also arms the wingtip RCS thrusters for steering in space) · right-drag look · <b>Esc</b> pause · gamepad supported`;
+        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view (wheel = camera distance) · <b>I</b> hide HUD · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · <b>K</b> tail hook · <b>O</b> autopilot (then 1-6; the mouse looks around while it flies, W/A/S/D take over) · <b>U</b> motor cut-off / relight (latches locked; also arms the wingtip RCS thrusters for steering in space) · right-drag look · <b>Esc</b> pause · gamepad supported`;
 
     const on = (id, fn) => this.$(id).addEventListener('click', () => { this.audio.unlock(); this.audio.play('click'); fn(); });
     on('btn-fly', () => this.fly());
@@ -322,6 +322,7 @@ export class UI {
       }
       switch (e.code) {
         case 'KeyV': g.cycleView(); break;
+        case 'KeyI': g.toggleHud(); break;
         case 'KeyG': g.toggleGear(); break;
         case 'KeyF': g.dropFlare(); break;
         case 'KeyX': g.fireMissile(); break;
@@ -350,6 +351,12 @@ export class UI {
       else this.mouse.fire = true;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // mouse wheel: camera distance in the outside views
+    canvas.addEventListener('wheel', (e) => {
+      if (this.game.state !== 'playing') return;
+      e.preventDefault();
+      this.game.cam.zoomBy(Math.sign(e.deltaY) * Math.min(3, Math.abs(e.deltaY) / 60 || 1));
+    }, { passive: false });
     document.addEventListener('pointerlockchange', () => { this.mouse.locked = document.pointerLockElement === canvas; });
     document.addEventListener('mousemove', (e) => {
       if (rdrag) { this.lookD.dx += e.movementX; this.lookD.dy += e.movementY; }

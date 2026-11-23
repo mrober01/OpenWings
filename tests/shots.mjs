@@ -29,6 +29,18 @@ export const SCENARIOS = {
   sunset: { setup: `__shot.start('free','su35',{tod:'sunset',air:true,alt:500,view:'cockpit'})`, wait: 3 },
   night: { setup: `__shot.start('free','f22',{tod:'night',air:true,alt:500})`, wait: 3 },
   overcast: { setup: `__shot.start('free','a10',{tod:'overcast',air:true,alt:400})`, wait: 3 },
+  dogfight_chase_lock: { setup: `__shot.start('dogfight','ef2000',{tod:'day'}); { const g = __game, p = g.player; g.cycleTarget(); const t = g.target;
+      const f = __game.v3(0, 0, -1).applyQuaternion(p.obj.quaternion); t.pos.copy(p.pos).addScaledVector(f, 2500); t.pos.y += 60; }`, wait: 2 },
+  dogfight_flyby: { setup: `__shot.start('dogfight','ef2000',{tod:'day',view:'flyby'})`, wait: 4 },
+  chase_locked: { setup: `__shot.start('dogfight','ef2000',{tod:'day'}); { const g = __game, p = g.player; g.cycleTarget(); const t = g.target;
+      const f = g.v3(0, 0, -1).applyQuaternion(p.obj.quaternion); t.pos.copy(p.pos).addScaledVector(f, 2500); t.pos.y += 60;
+      const fh = g.fillHud.bind(g); g.fillHud = (...a) => { g.lock = 1; fh(...a); }; }`, wait: 0.6 },
+  padlock: { setup: `__shot.start('dogfight','ef2000',{tod:'day'}); __game.cycleTarget(); __game.cam.setView('target')`, wait: 2 },
+  flyby_valley: { setup: `__shot.start('free','a10',{tod:'day',air:true,alt:150,view:'flyby'})`, wait: 6 },
+  chase_damaged: { setup: `__shot.start('dogfight','ef2000',{tod:'day'}); { const p = __game.player; p.hp = p.maxHp * 0.42; p.fm.fuel = 22; p.fm.airbrake = 1; }`, wait: 1.5 },
+  flyby_low: { setup: `__shot.start('free','f22',{tod:'day',air:true,alt:120,view:'flyby'})`, wait: 3.2 },
+  flyby_pass: { setup: `__shot.start('free','f22',{tod:'day',air:true,alt:120,view:'flyby'})`, wait: 4.6 },
+  dogfight_orbit: { setup: `__shot.start('dogfight','ef2000',{tod:'day',view:'orbit'})`, wait: 4 },
   dogfight: { setup: `__shot.start('dogfight','ef2000',{tod:'day'})`, wait: 6 },
   strike: { setup: `__shot.start('strike','a10',{tod:'day'})`, wait: 4 },
   orbit: { setup: `__shot.start('free','ef2000',{tod:'dawn',air:true,alt:1200,view:'orbit'})`, wait: 3 },

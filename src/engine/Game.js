@@ -530,6 +530,13 @@ export class Game {
     this.audio.play('click');
   }
 
+  /** I: hide the whole HUD except the warnings (clean screen for screenshots / video). */
+  toggleHud() {
+    if (this.state !== 'playing') return;
+    this.cleanHud = !this.cleanHud;
+    this.say(this.cleanHud ? 'HUD OFF · I' : 'HUD ON');
+  }
+
   cycleView() {
     if (this.state !== 'playing') return;
     this.say(VIEW_NAMES[this.cam.next()]);
@@ -1377,6 +1384,7 @@ export class Game {
     // the HUD is a fixed glass plate ahead of the pilot: looking away (panel glance, free look) shows the compact strip
     if (s.view === 'cockpit' && (this.cam.lookPitch < -0.3 || Math.abs(this.cam.lookYaw) > 0.5)) s.view = 'pitlook';
     s.touch = !!(this.ui && this.ui.touchActive);
+    s.clean = !!this.cleanHud;
     s.units = this.units;
     _f.set(0, 0, -1).applyQuaternion(q); _u.set(0, 1, 0).applyQuaternion(q); _r.set(1, 0, 0).applyQuaternion(q);
     o.name = p.name; o.pos = p.pos; o.vel = p.vel; o.quat = q;
@@ -1396,7 +1404,7 @@ export class Game {
 
     const w = s.weapons;
     w.gun = p.gun; w.gunMax = sp.gunAmmo; w.missiles = p.missiles; w.missilesMax = sp.missileCount; w.flares = p.flares;
-    w.hasGun = sp.gunAmmo > 0; w.hasMissiles = sp.missileCount > 0;
+    w.hasGun = sp.gunAmmo > 0; w.hasMissiles = sp.missileCount > 0; w.missileMin = MISSILE.minRange;
 
     // target
     const t = this.target;
@@ -1407,6 +1415,7 @@ export class Game {
       ts.range = _a.length();
       ts.closure = -(_b.copy(t.vel).sub(p.vel).dot(_a)) / Math.max(ts.range, 1);
       ts.lock = this.lock; ts.locked = this.lock >= 1;
+      ts.off = Math.acos(clamp(_a.dot(_f) / Math.max(ts.range, 1), -1, 1));   // off the nose (seeker cone 0.45 rad)
       if (w.hasGun && ts.range < GUN_RANGE) { leadSolution(p.pos, p.vel, t, s._aim); ts.aim = s._aim; } else ts.aim = null;
       s.target = ts;
     } else s.target = null;

@@ -97,7 +97,7 @@ it re-zeroes each time you press FLY or resume. Experimental.
 | Gear / brake / tail hook | `G` / `B` / `K` |
 | Autopilot | `O` opens the menu, then `1`–`6` (`0` = off). While it flies the mouse looks around; any flight key (`W` `A` `S` `D` …) takes over |
 | Pylon latches / motor cut-off | `H` (hold = burn-limiter override) / `U` |
-| View | `V` (chase → cockpit → padlock → fly-by → orbit) |
+| View | `V` (chase → cockpit → padlock → fly-by → orbit); mouse wheel = camera distance; `I` hides the HUD |
 | Look | right-mouse drag; click the view to use the mouse as a stick |
 | Pause | `Esc` or `P` |
 

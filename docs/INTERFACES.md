@@ -93,8 +93,10 @@ hud.clear()
 ```js
 {
   time,                         // sim seconds (blink timers)
-  view: 'cockpit'|'chase'|'flyby'|'orbit'|'target',
+  view: 'cockpit'|'pitlook'|'chase'|'flyby'|'orbit'|'target',   // cockpit = full HUD; pitlook = compact strip;
+                                // outside views = flight bar + world markers + weapons panel (no ladder/tapes)
   camera: THREE.PerspectiveCamera,   // matrices current for this frame; project world points with it
+  clean: false,                 // HUD hidden (I key): draw only the warnings
   touch: false,                 // touch layout active: keep symbology out of the bottom-left 200×200 css px
                                 // (stick) and the bottom-right 260×210 css px (buttons + throttle)
   own: {
@@ -109,11 +111,12 @@ hud.clear()
   latch, boost,                 // pylon latches locked (bool); number of hung motors burning
   override, guard,              // MSL BURN LIMIT switch in OVRD (bool); its guard 0 closed .. 1 up
   input: { pitch, roll, yaw },  // current stick (cockpit animates the stick with it)
-  weapons: { gun, gunMax, missiles, missilesMax, flares, hasGun, hasMissiles, gunRange /*m*/, missileRange /*m*/ },
+  weapons: { gun, gunMax, missiles, missilesMax, flares, hasGun, hasMissiles, gunRange /*m*/, missileRange /*m*/, missileMin /*m*/ },
   target: null | {
     unit, pos, vel, name, kind, hp /*0..1*/,
     range, closure,             // m, m/s (+ = closing)
     lock /*0..1*/, locked,      // missile seeker
+    off,                        // rad off the nose (the seeker locks inside 0.45)
     aim: Vector3 | null,        // world point to put the gun cross on to hit (lead-computed); null beyond gun range
   },
   units: Unit[],                // every unit (check .alive); own aircraft has isPlayer

@@ -17,6 +17,8 @@ const AMBER = '#ffc531';
 const RED = '#ff4d3d';
 const HOSTILE = '#ff6a50';
 const WHITE = '#eaf6ee';
+const PANEL = 'rgba(2,16,9,0.42)';
+const PANEL_EDGE = 'rgba(61,255,114,0.38)';
 const FONT_FAMILY = 'ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, "Roboto Mono", "Droid Sans Mono", monospace';
 
 const MAX_MARK = 96;
@@ -122,6 +124,9 @@ export class Hud {
     this.kWpt = new Slot(); this.kNavBrg = new Slot('BRG '); this.kNavDst = new Slot();
     this.kIls = new Slot('RWY '); this.kRwy = new Slot('ILS RWY ');
     this.kRadar = new Slot(); this.kRadarHalf = new Slot();
+    this.kWpRng = new Slot(); this.kWpMsl = new Slot('MSL '); this.kWpGun = new Slot('GUN '); this.kWpFlr = new Slot('FLR ');
+    this.kChipFuel = new Slot('FUEL ', '%'); this.kChipHull = new Slot('HULL ', '%');
+    this._soft = false; this._apY = 0; this._wpTop = 0; this._cx = 0; this._cy = 0;
     this.kStripSpd = new Slot('', ' KT'); this.kStripAlt = new Slot('', ' FT'); this.kStripHdg = new Slot('HDG ');
     // mission strip cache
     this._mScore = NaN; this._mKills = NaN; this._mHost = NaN; this._mWave = NaN; this._mTime = NaN; this._mStr = '';
@@ -201,6 +206,15 @@ export class Hud {
     ctx.fillText(str, x, y);
   }
 
+  /** rounded translucent panel */
+  _panel(x, y, w, h, fill, stroke, lw) {
+    const ctx = this.ctx, r = Math.min(6 * this.u, h / 2);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, r); else ctx.rect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = fill; ctx.fill();
+    if (stroke) { ctx.lineWidth = lw || 1; ctx.strokeStyle = stroke; ctx.stroke(); }
+  }
+
   _bar(x, y, w, h, frac, col) {
     const ctx = this.ctx;
     ctx.fillStyle = BACK; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
@@ -271,11 +285,18 @@ export class Hud {
     const time = num(s.time, 0);
     const hdg = num(own.heading, 0);
     const view = s.view;
-    const full = view === 'cockpit' || view === 'chase' || view == null;
+    // cockpit: the full HUD on the glass. Outside views (chase, fly-by, orbit, padlock): no
+    // pitch ladder / tapes over the airframe — a compact flight bar, the world markers
+    // (target box, lock, gun pipper) and a weapons panel at the bottom instead.
+    const full = view === 'cockpit' || view == null;
+    const ext = !full && view !== 'pitlook';
     const hasCam = this._setCamera(s.camera);
 
     const bo = num(s.blackout, 0);
     if (bo > 0.02 || bo < -0.02) this._vignette(bo);
+    this._apY = 0;
+    // clean screen (I key): nothing but the warnings, for screenshots and video
+    if (s.clean) { this._warnings(s.warn || EMPTY, time, false, false); return; }
 
     const nav = s.nav || null, wpt = s.waypoint || null;
     let bug = NaN;
@@ -295,13 +316,24 @@ export class Hud {
       this._headingTape(hdg * DEG, bug);
       this._status(own, s.weapons || EMPTY, s.warn || EMPTY, time);
       this._mission(s.mission || EMPTY);
+    } else if (ext) {
+      if (hasCam) {
+        this._markers(s, own);
+        if (wpt && wpt.pos) this._waypoint(wpt, own);
+        if (view === 'chase') { this._gunCross(s, own); this._extFpm(own); }
+        if (s.target) { this._soft = true; this._target(s, s.target, time); this._soft = false; }
+      }
+      this._extBar(own, s.warn || EMPTY);
+      this._extLeft(s, own, time);
+      this._weaponPanel(s, time);
+      if (nav && nav.ils) this._extIls(nav);
     } else {
       this._strip(own, hdg);
     }
     this._radar(s, own, hdg, time, nav, wpt);
     this._navBlock(nav);
     this._apLine(s, time);
-    this._warnings(s.warn || EMPTY, time, full);
+    this._warnings(s.warn || EMPTY, time, full, ext);
   }
 
   /* ------------------------------------------------------------------ pitch ladder + horizon */
@@ -731,7 +763,33 @@ export class Hud {
     const range = num(t.range, NaN), clo = num(t.closure, NaN);
     const name = typeof t.name === 'string' ? t.name : '';
 
-    if (on) {
+    if (on && this._soft) {
+      // outside views: corner brackets; the seeker diamond spins in and settles as it locks
+      const b = box * (locked ? 1.25 : 1.4), k = b * 0.42;
+      const col = locked ? RED : hostile ? HOSTILE : GREEN;
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const sx = i & 1 ? 1 : -1, sy = i & 2 ? 1 : -1, x = tx + sx * b, y = ty + sy * b;
+        ctx.moveTo(x - sx * k, y); ctx.lineTo(x, y); ctx.lineTo(x, y - sy * k);
+      }
+      this._st(col, locked ? 2.25 : 1.75);
+      if (locked || lock > 0.02) {
+        const d = locked ? b * 0.62 : b * (1.5 - 0.88 * lock), a = locked ? 0 : (1 - lock) * 2.2;
+        const ca = Math.cos(a) * d, sa = Math.sin(a) * d;
+        ctx.beginPath();
+        ctx.moveTo(tx + sa, ty - ca); ctx.lineTo(tx + ca, ty + sa); ctx.lineTo(tx - sa, ty + ca); ctx.lineTo(tx - ca, ty - sa); ctx.closePath();
+        this._st(locked ? RED : GREEN, locked ? 2 : 1.25);
+      }
+      const hp = num(t.hp, NaN);
+      if (hp === hp && hp < 0.999) {
+        ctx.fillStyle = OUTLINE; ctx.fillRect(tx - b - 1, ty + b + 4 * u - 1, b * 2 + 2, 3 * u + 2);
+        ctx.fillStyle = hostile ? HOSTILE : GREEN; ctx.fillRect(tx - b, ty + b + 4 * u, b * 2 * clamp(hp, 0, 1), 3 * u);
+      }
+      this._f(this.fS);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (name) this._text(name, tx, ty - b - 9 * u, col);
+      if (range === range) this._text(sRange(this.kTgtRng, range), tx, ty + b + 15 * u, GREEN);
+    } else if (on) {
       ctx.beginPath();
       ctx.rect(tx - box, ty - box, box * 2, box * 2);
       this._st(GREEN, 1.5);
@@ -818,7 +876,221 @@ export class Hud {
     }
   }
 
-  /* ------------------------------------------------------------------ compact strip (external views) */
+  /* ------------------------------------------------------------------ outside views */
+
+  /** Two-row flight bar, top centre: speed · altitude · heading, then G · VS · throttle · gear. */
+  _extBar(own, warn) {
+    const ctx = this.ctx, u = this.u, cx = this.cx, cw = this.cw;
+    const w = cw * 40, h1 = 21 * u, h2 = 15 * u, y = this.T, h = h1 + h2;
+    this._panel(cx - w / 2, y, w, h, PANEL, PANEL_EDGE, 1);
+    ctx.beginPath(); ctx.moveTo(cx - w / 2 + 8 * u, y + h1 + 0.5); ctx.lineTo(cx + w / 2 - 8 * u, y + h1 + 0.5);
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(61,255,114,0.25)'; ctx.stroke();
+    ctx.textBaseline = 'middle';
+    // row 1: big numbers
+    this._f(this.fM);
+    const y1 = y + h1 / 2 + 0.5, c3 = w / 3;
+    ctx.textAlign = 'center';
+    this._text(sInt(this.kStripSpd, Math.max(0, num(own.ias, 0) * KT)), cx - c3, y1, (warn.stall || own.stalled) ? AMBER : GREEN);
+    const aglFt = num(own.agl, NaN) * FT;
+    this._text(sInt(this.kStripAlt, Math.round(num(own.alt, 0) * FT / 10) * 10), cx, y1, warn.pullUp ? RED : GREEN);
+    this._text(sHdg(this.kStripHdg, num(own.heading, 0) * DEG), cx + c3, y1, GREEN);
+    // row 2: small
+    this._f(this.fS);
+    const y2 = y + h1 + h2 / 2 + 0.5;
+    this._text(sFix1(this.kG, num(own.g, 1)), cx - c3, y2, warn.overG ? AMBER : GREEN_DIM);
+    if (aglFt === aglFt && aglFt < 2500) this._text(sInt(this.kRalt, aglFt < 100 ? Math.max(0, aglFt) : Math.round(aglFt / 10) * 10), cx, y2, GREEN_DIM);
+    else this._text(sSigned(this.kVs, Math.round(num(own.vs, 0) * FT * 60 / 50) * 50), cx, y2, GREEN_DIM);
+    // throttle: a thin bar with the number; amber-gold in afterburner
+    const thr = clamp(num(own.throttle, 0), 0, 1), bw = c3 * 0.42, bx = cx + c3 - bw / 2 - 2 * u, bh = 4 * u;
+    ctx.fillStyle = 'rgba(61,255,114,0.15)'; ctx.fillRect(bx - bw / 2 - 1 * u, y2 - bh / 2, bw, bh);
+    ctx.fillStyle = own.ab ? AMBER : GREEN; ctx.fillRect(bx - bw / 2 - 1 * u, y2 - bh / 2, bw * thr, bh);
+    ctx.textAlign = 'left';
+    this._text(own.ab ? 'AB' : sInt(this.kThr, thr * 100), bx + bw / 2 + 3 * u, y2, own.ab ? AMBER : GREEN_DIM);
+  }
+
+  /**
+   * Outside views, top left: the objective and score, then only the systems that need a look
+   * right now (gear in transit or down, brake, hook, low fuel, damage) as small chips.
+   */
+  _extLeft(s, own, time) {
+    const ctx = this.ctx, u = this.u, x = this.L, lh = 14 * u, m = s.mission || EMPTY, warn = s.warn || EMPTY;
+    let y = this.T + 6 * u;
+    this._f(this.fS);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const obj = m.objective;
+    if (typeof obj === 'string' && obj.length) {
+      const maxW = Math.max(120, this.cx - this.cw * 20 - 14 * u - x);
+      if (obj !== this._objSrc || maxW !== this._objW) {
+        this._objSrc = obj; this._objW = maxW;
+        let t = obj, n = obj.length;
+        while (n > 4 && ctx.measureText(t).width > maxW) { n--; t = obj.slice(0, n) + '…'; }
+        this._objStr = t;
+      }
+      this._text(this._objStr, x, y, GREEN);
+      y += lh;
+    }
+    const score = num(m.score, 0), kills = num(m.kills, 0), host = num(m.hostiles, 0), wave = num(m.wave, 0);
+    const t = (m.timer == null) ? -1 : Math.max(0, Math.floor(num(m.timer, 0)));
+    if (score !== this._mScore || kills !== this._mKills || host !== this._mHost || wave !== this._mWave || t !== this._mTime) {
+      this._mScore = score; this._mKills = kills; this._mHost = host; this._mWave = wave; this._mTime = t;
+      let str = 'SCORE ' + score + '  KILLS ' + kills + '  HOSTILE ' + host;
+      if (wave > 0) str += '  WAVE ' + wave;
+      if (t >= 0) { const mm = Math.floor(t / 60), ss = t % 60; str += '  ' + (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss; }
+      this._mStr = str;
+    }
+    this._text(this._mStr, x, y, GREEN_DIM);
+    y += lh + 4 * u;
+    // chips
+    this._cx = x; this._cy = y;
+    const gp = num(own.gearPos, own.gearDown ? 1 : 0);
+    if (gp > 0.98) this._chip('GEAR', GREEN);
+    else if (gp > 0.02) this._chip('GEAR', (time * 3) % 1 < 0.6 ? AMBER : GREEN_DIM);
+    if (num(own.airbrake, 0) > 0.05) this._chip('BRAKE', GREEN);
+    const hk = num(own.hook, 0);
+    if (hk > 0.98) this._chip('HOOK', GREEN); else if (hk > 0.02) this._chip('HOOK', AMBER);
+    const fuel = clamp(num(own.fuel, 0), 0, 100);
+    if (fuel < 40) this._chip(sInt(this.kChipFuel, fuel), (warn.fuel || fuel < 15) ? AMBER : GREEN);
+    const hp = clamp(num(own.hp, 1), 0, 1);
+    if (hp < 0.995) this._chip(sInt(this.kChipHull, hp * 100), hp < 0.25 ? RED : hp < 0.5 ? AMBER : GREEN);
+    this._apY = this._cx > x ? this._cy + 22 * u : y + 6 * u;
+  }
+
+  _chip(str, col) {
+    const ctx = this.ctx, u = this.u, w = str.length * this.cw + 12 * u, h = 16 * u;
+    this._panel(this._cx, this._cy - h / 2, w, h, PANEL, col, 1);
+    ctx.textAlign = 'center';
+    this._text(str, this._cx + w / 2, this._cy + 0.5, col);
+    ctx.textAlign = 'left';
+    this._cx += w + 5 * u;
+  }
+
+  /** Chase view: a small gun cross where the guns converge (~500 m along the nose). */
+  _gunCross(s, own) {
+    const q = own.quat, p = own.pos, wp = s.weapons;
+    if (!q || !p || own.onGround || (wp && wp.hasGun === false)) return;
+    const fx = -2 * (q.x * q.z + q.w * q.y), fy = -2 * (q.y * q.z - q.w * q.x), fz = -(1 - 2 * (q.x * q.x + q.y * q.y));
+    const d = 500;
+    if (!this._projPt(p.x + fx * d, p.y + fy * d, p.z + fz * d) || !this._onScreen(10)) return;
+    const ctx = this.ctx, g = this.g, x = this.sx, y = this.sy, a = 3 * g, b = 9 * g;
+    ctx.beginPath();
+    ctx.moveTo(x - b, y); ctx.lineTo(x - a, y); ctx.moveTo(x + a, y); ctx.lineTo(x + b, y);
+    ctx.moveTo(x, y - b); ctx.lineTo(x, y - a); ctx.moveTo(x, y + a); ctx.lineTo(x, y + b);
+    ctx.globalAlpha = 0.85;
+    this._st(GREEN, 1.5);
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * Bottom centre: what the missile seeker is doing, in words, so you never need the HUD
+   * glass to know whether to shoot. NO TARGET · OUT OF RANGE · TOO CLOSE · TURN · LOCKING · LOCKED.
+   */
+  /** Chase view with the gear down: the flight-path marker, to fly the approach from outside. */
+  _extFpm(own) {
+    const v = own.vel;
+    if (!v || own.onGround || num(own.gearPos, own.gearDown ? 1 : 0) < 0.5) return;
+    if (v.x * v.x + v.y * v.y + v.z * v.z < 225 || !this._projDir(v.x, v.y, v.z) || !this._onScreen(8)) return;
+    const ctx = this.ctx, g = this.g, x = this.sx, y = this.sy, r = 5 * g;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, TAU);
+    ctx.moveTo(x - r, y); ctx.lineTo(x - r * 2.4, y);
+    ctx.moveTo(x + r, y); ctx.lineTo(x + r * 2.4, y);
+    ctx.moveTo(x, y - r); ctx.lineTo(x, y - r * 1.8);
+    this._st(GREEN, 1.5);
+  }
+
+  /** Outside views on an ILS approach: a small cross-pointer box, bottom centre. */
+  _extIls(nav) {
+    const ils = nav.ils, ctx = this.ctx, u = this.u;
+    const sz = 64 * u, x0 = this.cx - sz / 2;
+    const yb = this._wpTop ? this._wpTop - 8 * u : this.B - 4 * u;
+    const y0 = yb - sz - 14 * u;
+    this._panel(x0, y0, sz, sz + 14 * u, PANEL, PANEL_EDGE, 1);
+    const cx = this.cx, cy = y0 + sz / 2 + 2 * u, half = sz * 0.36;
+    ctx.fillStyle = GREEN_DIM;
+    for (let k = -2; k <= 2; k++) {
+      if (!k) continue;
+      ctx.fillRect(cx + k * half / 2 - 1.5, cy - 1.5, 3, 3);
+      ctx.fillRect(cx - 1.5, cy + k * half / 2 - 1.5, 3, 3);
+    }
+    const lx = cx - clamp(num(ils.loc, 0) / (2.5 * RAD), -1, 1) * half;
+    const gy = cy + clamp(num(ils.gs, 0) / (0.7 * RAD), -1, 1) * half;
+    ctx.beginPath();
+    ctx.moveTo(lx, cy - half); ctx.lineTo(lx, cy + half);
+    ctx.moveTo(cx - half, gy); ctx.lineTo(cx + half, gy);
+    this._st(GREEN, 2);
+    ctx.beginPath(); ctx.moveTo(cx - 4 * u, cy); ctx.lineTo(cx + 4 * u, cy); ctx.moveTo(cx, cy - 4 * u); ctx.lineTo(cx, cy + 4 * u);
+    ctx.lineWidth = 1; ctx.strokeStyle = WHITE; ctx.stroke();
+    this._f(this.fS);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const d = num(nav.dist, NaN);
+    this._text(d === d ? sRange(this.kIls, d) : 'ILS', cx, y0 + sz + 6 * u, GREEN);
+  }
+
+  _weaponPanel(s, time) {
+    this._wpTop = 0;
+    const wp = s.weapons || EMPTY, t = s.target;
+    const ctx = this.ctx, u = this.u, cw = this.cw;
+    const hasM = wp.hasMissiles !== false && num(wp.missiles, 0) > 0;
+    if (!t && (!hasM || !(num((s.mission || EMPTY).hostiles, 0) > 0))) return;   // nothing to shoot at: stay out of the way
+    let w = Math.min(cw * 44, this.w - 24 * u);
+    if (this.touch) w = Math.min(w, this.btnX - this.stickX - 16 * u);
+    if (w < cw * 22) return;
+    const h = 40 * u, x0 = this.cx - w / 2;
+    let y0 = this.B - h - 4 * u;
+    if (this.touch) y0 = Math.min(y0, this.h - 14 * u - h);
+    const range = t ? num(t.range, NaN) : NaN;
+    const rMax = num(wp.missileRange, 9000), rMin = num(wp.missileMin, 350);
+    const off = t ? num(t.off, 0) : 0;
+    const lock = t ? clamp(num(t.lock, 0), 0, 1) : 0, locked = !!(t && t.locked);
+    const hostile = t && (!t.unit || t.unit.team !== 0);
+
+    let label, col = GREEN, blink = false;
+    if (!t) { label = 'NO TARGET  ·  T / TGT'; col = GREEN_DIM; }
+    else if (!hasM) { label = 'NO MISSILES  ·  GUNS'; col = AMBER; }
+    else if (locked) { label = 'LOCKED  ·  FIRE'; col = RED; blink = true; }
+    else if (range === range && range > rMax) { label = 'OUT OF RANGE'; col = AMBER; }
+    else if (range === range && range < rMin) { label = 'TOO CLOSE'; col = AMBER; }
+    else if (off > 0.45) { label = 'TURN TO TARGET'; col = AMBER; }
+    else { label = 'LOCKING'; }
+
+    this._wpTop = y0;
+    this._panel(x0, y0, w, h, locked ? 'rgba(40,0,0,0.55)' : PANEL, locked ? RED : PANEL_EDGE, locked ? 2 : 1);
+    ctx.textBaseline = 'middle';
+    // row 1: target name + range (left), missiles left (right)
+    const r1 = y0 + 11 * u, pad = 7 * u;
+    this._f(this.fS);
+    ctx.textAlign = 'left';
+    if (t) {
+      const name = typeof t.name === 'string' ? t.name : '';
+      this._text(name, x0 + pad, r1, hostile ? HOSTILE : GREEN);
+      if (range === range) this._text(sRange(this.kWpRng, range), x0 + pad + (name.length + 1) * cw, r1, GREEN);
+    }
+    // stores, right-aligned: GUN · MSL · FLR (monospace, so widths are char counts)
+    ctx.textAlign = 'right';
+    const flr = num(wp.flares, 0), gun = num(wp.gun, 0);
+    let xr = x0 + w - pad;
+    const sF = sInt(this.kWpFlr, flr);
+    this._text(sF, xr, r1, flr > 0 ? GREEN_DIM : AMBER); xr -= (sF.length + 2) * cw;
+    const sM = wp.hasMissiles === false ? 'MSL --' : sInt(this.kWpMsl, num(wp.missiles, 0));
+    this._text(sM, xr, r1, hasM ? GREEN : AMBER); xr -= (sM.length + 2) * cw;
+    if (wp.hasGun !== false) this._text(sInt(this.kWpGun, gun), xr, r1, gun > 0 ? GREEN_DIM : AMBER);
+    // row 2: seeker bar + state
+    const r2 = y0 + h - 12 * u, bw = w * 0.36, bh = 8 * u, bx = x0 + pad;
+    ctx.fillStyle = OUTLINE; ctx.fillRect(bx - 1, r2 - bh / 2 - 1, bw + 2, bh + 2);
+    const segs = 8, sg = bw / segs;
+    const fill = locked ? segs : Math.floor(lock * segs + 1e-6);
+    for (let i = 0; i < segs; i++) {
+      ctx.fillStyle = i < fill ? (locked ? RED : GREEN) : 'rgba(61,255,114,0.14)';
+      ctx.fillRect(bx + i * sg + 1, r2 - bh / 2, sg - 2, bh);
+    }
+    if (!blink || (time * 4) % 1 < 0.7) {
+      this._f(this.fM);
+      ctx.textAlign = 'left';
+      this._text(label, bx + bw + 9 * u, r2 + 0.5, col);
+    }
+  }
+
+  /* ------------------------------------------------------------------ compact strip (cockpit look-around) */
 
   _strip(own, hdg) {
     const ctx = this.ctx, u = this.u, cx = this.cx;
@@ -968,13 +1240,16 @@ export class Hud {
     ctx.textAlign = 'left';
     this._text(sRange(this.kRadar, range), x0 + 3 * u, y0 + rs - 8 * u, GREEN);
     this._text(sRange(this.kRadarHalf, range / 2), cx + 3 * u, cy + rad / 2 - 7 * u, GREEN_DIM);
-    this._radarBottom = y0 + rs;
+    this._radarBottom = y0 + rs; this._radarLeft = x0;
   }
 
   _navBlock(nav) {
     if (!nav) return;
-    const ctx = this.ctx, u = this.u, x = this.R, lh = 14 * u;
-    let y = (this._radarBottom || this.T) + 10 * u;
+    const ctx = this.ctx, u = this.u, lh = 14 * u;
+    // under the radar; on touch screens the button grid lives there, so beside the radar,
+    // below the pause button (46 css px tall) instead
+    let x = this.R, y = (this._radarBottom || this.T) + 10 * u;
+    if (this.touch && this._radarLeft) { x = this._radarLeft - 8 * u; y = this.T + 52; }
     this._f(this.fS);
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     if (typeof nav.name === 'string') { this._text(nav.name, x, y, GREEN); y += lh; }
@@ -995,7 +1270,7 @@ export class Hud {
 
   /* ------------------------------------------------------------------ warnings */
 
-  _warnings(warn, time, full) {
+  _warnings(warn, time, full, ext) {
     let n = 0, first = -1;
     for (let i = 0; i < W_KEY.length; i++) {
       const on = warn[W_KEY[i]] ? 1 : 0;
@@ -1004,7 +1279,7 @@ export class Hud {
     }
     if (!n) return;
     const ctx = this.ctx, u = this.u, cx = this.cx;
-    const yTop = this.T + (full ? 52 : 28) * u;
+    const yTop = this.T + (full ? 52 : ext ? 50 : 28) * u;
     const red = W_RED[first];
     const blinkOn = red ? (time * 4) % 1 < 0.7 : (time * 1.5) % 1 < 0.8;
     const bh = 21 * u;
@@ -1047,7 +1322,7 @@ export class Hud {
     this._f(this.fS);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     // left column, under the mission objective and score lines
-    let y = this.T + 6 * u + lh * 6 + 8 * u;
+    let y = this._apY || (this.T + 6 * u + lh * 6 + 8 * u);
     if (ap) {
       const str = 'AP · ' + ap, w = ctx.measureText(str).width + 12 * u, bh = 17 * u;
       ctx.fillStyle = BACK; ctx.fillRect(x - 4 * u, y - bh / 2, w, bh);

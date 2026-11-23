@@ -21,13 +21,21 @@ export class CameraRig {
     this.auto = false;          // slow automatic orbit (debrief)
     this.shake = 0;
     this.init = false;
-    this.flyPos = new THREE.Vector3(); this.flyT = 0;
+    this.flyPos = new THREE.Vector3(); this.flyT = 0; this.flySide = 1; this.flyN = 0;
+    this.flyAim = new THREE.Vector3();
     this.fov = BASE_FOV;
+    this.zoom = 1;              // external-view distance multiplier (mouse wheel)
+  }
+
+  /** Mouse wheel: >0 pulls the camera back. Chase, orbit and padlock only. */
+  zoomBy(steps) {
+    if (this.view === 'cockpit' || this.view === 'flyby' || !steps) return;
+    this.zoom = clamp(this.zoom * Math.exp(steps * 0.12), 0.55, 4);
   }
 
   setView(v) {
     if (!VIEWS.includes(v)) return;
-    this.view = v; this.init = false; this.lookYaw = 0; this.lookPitch = 0;
+    this.view = v; this.init = false; this.lookYaw = 0; this.lookPitch = 0; this.lookIdle = 9;
   }
 
   next() { this.setView(VIEWS[(VIEWS.indexOf(this.view) + 1) % VIEWS.length]); return this.view; }
@@ -75,37 +83,50 @@ export class CameraRig {
       _e.set(this.lookPitch, this.lookYaw, 0);
       cam.quaternion.copy(q).multiply(_q.setFromEuler(_e));
     } else if (view === 'orbit') {
+      // the debrief spins; in flight it drifts slowly once you let go of the mouse
       if (this.auto) this.orbitYaw += dt * 0.25;
-      const d = R * 2.8 + 6, cp = Math.cos(this.orbitPitch);
+      else if (this.lookIdle > 3) this.orbitYaw += dt * 0.06 * Math.min(1, (this.lookIdle - 3) / 2);
+      const d = (R * 2.8 + 6) * this.zoom, cp = Math.cos(this.orbitPitch);
       cam.position.set(p.x + Math.sin(this.orbitYaw) * cp * d, p.y + Math.sin(this.orbitPitch) * d, p.z + Math.cos(this.orbitYaw) * cp * d);
       this.clampGround(env, 3);
       cam.up.copy(UP);
       cam.lookAt(p);
     } else if (view === 'flyby') {
-      this.flyT -= dt;
-      const d = cam.position.distanceTo(p);
-      if (!this.init || this.flyT <= 0 || d > 1100) {
-        const side = Math.random() < 0.5 ? -1 : 1;
-        this.flyPos.copy(p).addScaledVector(unit.vel, 2.4).addScaledVector(_r, side * (R * 2 + 20 + Math.random() * 40));
-        this.flyPos.y += Math.random() * 24 - 6;
-        this.flyT = 7; this.init = true;
+      // a camera operator on a spot ahead of the flight path: the aircraft comes at the lens,
+      // passes close by and goes away; then cut to the next spot. Long lens, smooth pan.
+      this.flyT += dt;
+      const spd = unit.vel.length();
+      _a.copy(this.flyPos).sub(p);
+      const d = _a.length();
+      const passed = spd > 2 ? _a.dot(unit.vel) / spd < -Math.max(R * 6, 60) : this.flyT > 6;
+      if (!this.init || d > 2200 || this.flyT > 14 || (passed && this.flyT > 2.5)) {
+        this.pickFlyby(unit, env, spd, R);
+        _a.copy(this.flyPos).sub(p);
       }
       cam.position.copy(this.flyPos);
-      this.clampGround(env, 2.5);
+      this.clampGround(env, 1.8);
+      // aim a touch ahead of the aircraft (where it is going), with a little pan lag
+      _b.copy(p).addScaledVector(unit.vel, 0.08);
+      this.flyAim.lerp(_b, 1 - Math.exp(-14 * dt));
       cam.up.copy(UP);
-      cam.lookAt(p);
-      fov = clamp(2 * Math.atan(R * 5 / Math.max(cam.position.distanceTo(p), 1)) * 57.3, 12, BASE_FOV);
+      cam.lookAt(this.flyAim);
+      // zoom: keep the airframe ~1/4 of the frame tall-ish, wider as it gets close
+      const dist = Math.max(cam.position.distanceTo(p), 1);
+      fov = clamp(2 * Math.atan(R * 2.4 / dist) * 57.3, 4, 70);
+      if (this.flyT === 0) this.fov = fov;   // fresh cut: no zoom sweep
     } else if (view === 'target') {
       _a.copy(target.pos).sub(p).normalize();
-      _b.copy(p).addScaledVector(_a, -(R * 2.6 + 4)); _b.y += R * 0.55 + 1;
+      _b.copy(p).addScaledVector(_a, -(R * 2.6 + 4) * this.zoom); _b.y += (R * 0.55 + 1) * this.zoom;
       if (!this.init) { cam.position.copy(_b); this.init = true; }
       cam.position.lerp(_b, 1 - Math.exp(-9 * dt));
       this.clampGround(env, 3);
       cam.up.copy(UP);
       cam.lookAt(target.pos);
     } else {
-      // chase: behind and above, rolls partly with the aircraft; drag swings it round
-      const back = R * 2.4, up = R * 0.5;
+      // chase: behind and a bit above, rolls partly with the aircraft; drag swings it round.
+      // The camera aims well ahead of the nose so the aircraft sits low in the frame and
+      // the sky in front of it (where the target is) stays clear.
+      const z = this.zoom, back = R * 2.5 * z + 2, up = R * 0.55 * z;
       const cy = Math.cos(this.lookYaw), sy = Math.sin(this.lookYaw);
       _b.copy(p).addScaledVector(_f, -back * cy).addScaledVector(_r, -back * sy)
         .addScaledVector(_u, up + back * Math.sin(this.lookPitch) * 0.8);
@@ -115,8 +136,11 @@ export class CameraRig {
       this.clampGround(env, 3);
       _a.copy(_u).lerp(UP, 0.55).normalize();
       cam.up.lerp(_a, l).normalize();
-      _a.copy(p).addScaledVector(_u, R * 0.12).addScaledVector(_f, R * 0.5 * cy);
+      _a.copy(p).addScaledVector(_u, R * 0.2 * z).addScaledVector(_f, R * 2.3 * z * cy);
       cam.lookAt(_a);
+      // a little wider with speed: sells the pace without moving the camera
+      const spd = unit.vel.length();
+      fov = BASE_FOV + clamp((spd - 120) / 300, 0, 1) * 8;
     }
 
     if (this.shake > 0.01) {
@@ -130,6 +154,44 @@ export class CameraRig {
     this.fov += (fov - this.fov) * Math.min(1, dt * 6);
     if (Math.abs(cam.fov - this.fov) > 0.05) { cam.fov = this.fov; cam.updateProjectionMatrix(); }
     cam.updateMatrixWorld(true);
+  }
+
+  /** Choose the next fly-by spot: ahead on the flight path, off to one side (alternating). */
+  pickFlyby(unit, env, spd, R) {
+    const p = unit.pos;
+    this.flySide = -this.flySide;
+    this.flyN++;
+    // time for the aircraft to reach the spot: long enough to see it coming
+    const lead = clamp(600 / Math.max(spd, 20), 2.2, 8);
+    this.flyPos.copy(p).addScaledVector(unit.vel, lead);
+    // sideways: horizontal right of the velocity, so a banked aircraft does not push the camera up/down
+    _r.set(-unit.vel.z, 0, unit.vel.x);
+    if (_r.lengthSq() < 1e-6) _r.set(1, 0, 0);
+    _r.normalize();
+    const off = R * 2.2 + 12 + Math.random() * (18 + spd * 0.12);
+    _a.copy(this.flyPos);                                  // the point on the path
+    // try this side, then the other; if a hill hides the approach either way, climb until it does not
+    for (let k = 0; k < 2; k++) {
+      this.flyPos.copy(_a).addScaledVector(_r, this.flySide * off);
+      const g = env.groundHeight(this.flyPos.x, this.flyPos.z);
+      if (this.flyPos.y - g < 120 && this.flyN % 3 === 0) this.flyPos.y = g + 2 + Math.random() * 4;   // standing on the ground, looking up
+      else this.flyPos.y += (this.flyN % 2 ? -1 : 1) * (R * 0.6 + Math.random() * 10);                // a touch above or below the path
+      if (this.flyPos.y < g + 2) this.flyPos.y = g + 2;
+      if (this.clearView(env, this.flyPos, p)) break;
+      this.flySide = -this.flySide;
+    }
+    for (let k = 0; k < 8 && !this.clearView(env, this.flyPos, p); k++) this.flyPos.y += 25;
+    this.flyAim.copy(p);
+    this.flyT = 0; this.init = true;
+  }
+
+  /** Terrain line of sight between two points (8 samples, 3 m margin). */
+  clearView(env, a, b) {
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8, x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, z = a.z + (b.z - a.z) * t;
+      if (env.groundHeight(x, z) + 3 > y) return false;
+    }
+    return true;
   }
 
   clampGround(env, margin) {
