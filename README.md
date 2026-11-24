@@ -25,6 +25,9 @@ no internet: everything is procedural and the whole game builds into **one HTML 
   Wave Assault (with a wingman), Landing Challenge (ILS, graded), Carrier Landing (catch the 3 wire) — three difficulty levels, best scores saved
 - **Aircraft carrier** on every map: catapult launches off the bow, tail hook + four arrestor wires on the angled deck,
   bolters, ramp strikes, the deck crew re-spots you on the cat after a trap
+- **Wingman**: call one up and it joins on your wing and stays there through every turn and roll, even when you take off
+  and land. Order airshow stunts: it slides in close and waves, flies inverted canopy-to-canopy over you (Top Gun style),
+  barrel-rolls around you, does a victory roll, or switches on airshow smoke. In the cockpit your head turns to watch
 - **Autopilot**: take off, land (runway or carrier, with go-arounds), go to space (the hung-missile booster run, all by
   itself), tour the map's landmarks, attack the nearest target, hold altitude/heading
 - **Flight model** with real g, energy bleed, stall, fly-by-wire assist; AI flies the same physics
@@ -79,6 +82,7 @@ Docs for contributors: `docs/ARCHITECTURE.md` (module map) and `docs/INTERFACES.
 | BRK (hold) | Speed brake (also on the ground, with the wheel brakes) |
 | GEAR · VIEW · NAV | Gear · next view · next airfield (or the carrier) for the nav/ILS readout |
 | AUTO | Autopilot menu: take off · land · go to space · next landmark · attack target · hold · off. While it flies, drag anywhere (left side too) to look around; AUTO → OFF to take over |
+| WING | Wingman menu: call / dismiss · swap side · close in & wave · inverted overhead · barrel roll around you · victory roll · smoke |
 | HOOK | Tail hook for carrier landings |
 | LATCH · MTR | Pylon latches (missiles stay on the rails as rocket boosters; hold = burn-limiter override) · motor cut-off / relight |
 | II | Pause |
@@ -96,6 +100,7 @@ it re-zeroes each time you press FLY or resume. Experimental.
 | Target / nav airfield | `T` / `N` |
 | Gear / brake / tail hook | `G` / `B` / `K` |
 | Autopilot | `O` opens the menu, then `1`–`6` (`0` = off). While it flies the mouse looks around; any flight key (`W` `A` `S` `D` …) takes over |
+| Wingman | `Y` opens the menu, then `1` call / dismiss · `2` swap side · `3` close in & wave · `4` inverted overhead · `5` barrel roll around you · `6` victory roll · `7` smoke (`0` = close) |
 | Pylon latches / motor cut-off | `H` (hold = burn-limiter override) / `U` |
 | View | `V` (chase → cockpit → padlock → fly-by → orbit); mouse wheel = camera distance; `I` hides the HUD |
 | Look | right-mouse drag; click the view to use the mouse as a stick |
@@ -119,6 +124,9 @@ X flares, Y target, bumpers throttle, LT brake, Back/Select cycles the autopilot
   in pairs. With the latches locked the two wingtip rounds work as **RCS thrusters**: up where the air is too thin for
   the controls, the stick still turns the jet (hands off = hold attitude). MTR / `U` cuts the motors (they keep their
   remaining burn) and relights them. Or just pick GO TO SPACE on the autopilot.
+- Wingman: set **WINGMAN ON** in the hangar to have one on every flight. On a runway start it's parked beside you, so you get
+  a formation take-off. Fly straight and level for the close stunts. If you pull hard, the formation opens up for safety.
+  Stunts you order while it's still joining up are flown as soon as it reaches your wing.
 
 ## License
 

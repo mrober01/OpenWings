@@ -33,6 +33,7 @@
       <button class="tbtn sm" id="btn-gear">GEAR</button>
       <button class="tbtn sm" id="btn-nav">NAV</button>
       <button class="tbtn sm" id="btn-auto">AUTO</button>
+      <button class="tbtn sm" id="btn-wing">WING</button>
       <button class="tbtn sm" id="btn-hook">HOOK</button>
       <button class="tbtn sm" id="btn-mtr">MTR</button>
       <button class="tbtn sm" id="btn-latch">LATCH</button>
@@ -98,6 +99,19 @@
     <button data-ap="target"><i>5</i>ATTACK TARGET</button>
     <button data-ap="hold"><i>6</i>HOLD ALT / HDG</button>
     <button data-ap="off" class="off"><i>0</i>OFF</button>
+  </div>
+
+  <!-- wingman orders (WING button / key Y; 1-7 while it is open) -->
+  <div id="wing-panel" class="hidden">
+    <div class="ap-title">WINGMAN</div>
+    <button data-wing="toggle"><i>1</i><span>CALL WINGMAN</span></button>
+    <button data-wing="side"><i>2</i><span>SWAP SIDE</span></button>
+    <button data-wing="wave"><i>3</i><span>CLOSE IN &amp; WAVE</span></button>
+    <button data-wing="inverted"><i>4</i><span>INVERTED OVERHEAD</span></button>
+    <button data-wing="barrel"><i>5</i><span>BARREL ROLL AROUND YOU</span></button>
+    <button data-wing="roll"><i>6</i><span>VICTORY ROLL</span></button>
+    <button data-wing="smoke"><i>7</i><span>SMOKE ON</span></button>
+    <button data-wing="close" class="off"><i>0</i><span>CLOSE</span></button>
   </div>
 
   <script type="importmap">

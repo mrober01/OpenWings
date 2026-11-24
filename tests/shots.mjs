@@ -83,6 +83,30 @@ export const SCENARIOS = {
   pacific: { setup: `__shot.start('free','su35',{tod:'day',map:'pacific',start:'carrier',view:'orbit'}); __game.cam.orbitYaw = 3.5; __game.cam.orbitPitch = 0.25`, wait: 2 },
   ap_panel: { setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:900}); __game.setAP('landmark'); __game.ui.toggleAP(true)`, wait: 1.5 },
   rcs_space: { setup: `__shot.start('free','f22',{tod:'day',air:true,alt:45000,view:'orbit'}); __game.player.fm.setAirborne(__game.player.obj, 600); __game.toggleLatch(); __game.ui.keys.KeyD = true; __game.cam.orbitYaw = 2.4; __game.cam.orbitPitch = 0.2`, wait: 1.2 },
+  // wingman: joined up in the slot, formation take-off, and the stunts at their best moment
+  // (WF = airborne start, wingman respawned behind and fast-forwarded into the slot with the player on altitude hold)
+  ...Object.fromEntries([
+    ['wing_slot', 'chase', '', 0, 0, 0],
+    ['wing_slot_pit', 'cockpit', '', 0, -1.15, 0.05],
+    ['wing_wave_pit', 'cockpit', 'wave', 7.2, -1.45, 0.02],
+    ['wing_wave', 'chase', 'wave', 7.2, 0, 0],
+    ['wing_inverted', 'chase', 'inverted', 9.5, 0, 0],
+    ['wing_inverted_pit', 'cockpit', 'inverted', 9.8, -0.25, 1.15],
+    ['wing_barrel', 'chase', 'barrel', 5.6, 0, 0],
+    ['wing_roll', 'chase', 'roll', 1.0, 0, 0],
+    ['wing_smoke', 'orbit', 'smoke', 6, 2.5, 0.3],
+  ].map(([n, view, cmd, t, yaw, pitch]) => [n, {
+    setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:1500}); { const g = __game, ff = (s) => { for (let t = 0; t < s; t += 1 / 30) g.update(1 / 30); };
+      g.wingman.dismiss(); g.wingman.spawn(); g.setAP('hold'); ff(20);
+      ${cmd ? `g.wingman.command('${cmd}'); ff(${t});` : ''} g.cam.setView('${view}');
+      ${view === 'orbit' ? `g.cam.orbitYaw = ${yaw}; g.cam.orbitPitch = ${pitch};` : `g.cam.lookYaw = ${yaw}; g.cam.lookPitch = ${pitch}; g.cam.lookIdle = -1e9;`} }`, wait: 0.5 }])),
+  // cockpit with hands off the view: the head turns by itself to watch the wingman's show
+  ...Object.fromEntries([['wing_wave_glance', 'wave', 7.5], ['wing_inverted_glance', 'inverted', 11], ['wing_barrel_glance', 'barrel', 6.5]].map(([n, cmd, t]) => [n, {
+    setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:1500}); { const g = __game, ff = (s) => { for (let t = 0; t < s; t += 1 / 30) g.update(1 / 30); };
+      g.wingman.dismiss(); g.wingman.spawn(); g.setAP('hold'); ff(20); g.wingman.command('${cmd}'); g.cam.setView('cockpit'); ff(${t}); }`, wait: 0.5 }])),
+  wing_panel: { setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:900}); __game.wingman.spawn(); __game.ui.toggleWing(true)`, wait: 1.5 },
+  wing_runway: { setup: `__game.settings.set('wingman', true); __shot.start('free','ef2000',{tod:'day',view:'orbit'}); __game.cam.orbitYaw = 3.6; __game.cam.orbitPitch = 0.18`, wait: 1.5,
+    after: `__game.settings.set('wingman', false)` },
   explosion: { setup: `__shot.start('free','ef2000',{tod:'day',air:true,alt:500}); __shot.boom()`, wait: 0.6 },
   // the other maps: low chase, high overview and a runway start on each
   // low pass toward each map's city (buildings close up); tod given per scenario

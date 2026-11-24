@@ -9,8 +9,9 @@ import { MAP_THUMBS } from './mapThumbs.js';
 import { OPTIONS } from '../engine/Settings.js';
 import { AB_DETENT } from '../engine/FlightModel.js';
 import { AP_MODES } from '../engine/Autopilot.js';
+import { WING_CMDS } from '../engine/Wingman.js';
 
-const MENU_OPTIONS = ['map', 'start', 'tod', 'difficulty', 'assist', 'quality', 'sensitivity', 'invertY', 'tilt', 'sound', 'haptics'];
+const MENU_OPTIONS = ['map', 'start', 'tod', 'difficulty', 'wingman', 'assist', 'quality', 'sensitivity', 'invertY', 'tilt', 'sound', 'haptics'];
 const STICK_R = 58;
 const expo = (v) => v * (0.4 + 0.6 * v * v);
 
@@ -93,7 +94,7 @@ export class UI {
         `<b>TGT</b> picks a target, hold it in front until the diamond closes, then <b>MSL</b> · stop on a runway to rearm · ` +
         `<b>LATCH</b> + <b>MSL</b> = missile motor stays on the rail as a rocket boost · <b>hold LATCH</b> (latches locked) = override the motor burn limiter: long burns, scorched wing, enough to reach space · <b>EJECT</b> twice to bail out · <b>AUTO</b> = autopilot (take off, land, space, landmark, target, hold; drag anywhere to look around while it flies, AUTO → OFF to take over) · <b>HOOK</b> for carrier traps · <b>MTR</b> = motors on/off (latches locked; wingtip RCS steers you in space)`
       : `<b>W/S</b> pitch · <b>A/D</b> roll · <b>Q/E</b> rudder · <b>Shift/Ctrl</b> throttle (1-5 presets, 5 = afterburner) · <b>Space</b> gun · ` +
-        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view (wheel = camera distance) · <b>I</b> hide HUD · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · <b>K</b> tail hook · <b>O</b> autopilot (then 1-6; the mouse looks around while it flies, W/A/S/D take over) · <b>U</b> motor cut-off / relight (latches locked; also arms the wingtip RCS thrusters for steering in space) · right-drag look · <b>Esc</b> pause · gamepad supported`;
+        `<b>X</b> missile · <b>F</b> flares · <b>T</b> target · <b>G</b> gear · <b>B</b> brake · <b>V</b> view (wheel = camera distance) · <b>I</b> hide HUD · <b>C</b> (hold) look at panel · <b>N</b> nav · <b>H</b> lock pylon latches (then <b>X</b> = rocket boost) · <b>hold H</b> = burn-limiter override (long burns, enough to reach space) · <b>J J</b> eject · <b>K</b> tail hook · <b>O</b> autopilot (then 1-6; the mouse looks around while it flies, W/A/S/D take over) · <b>Y</b> wingman (then 1 call/dismiss · 2 swap side · 3 close in &amp; wave · 4 inverted overhead · 5 barrel roll around you · 6 victory roll · 7 smoke) · <b>U</b> motor cut-off / relight (latches locked; also arms the wingtip RCS thrusters for steering in space) · right-drag look · <b>Esc</b> pause · gamepad supported`;
 
     const on = (id, fn) => this.$(id).addEventListener('click', () => { this.audio.unlock(); this.audio.play('click'); fn(); });
     on('btn-fly', () => this.fly());
@@ -106,6 +107,11 @@ export class UI {
     // autopilot picker: click / tap a mode
     for (const b of document.querySelectorAll('#ap-panel button')) {
       const pick = (e) => { e.preventDefault(); e.stopPropagation(); this.pickAP(b.dataset.ap); };
+      b.addEventListener('click', pick);
+      b.addEventListener('touchstart', pick, { passive: false });
+    }
+    for (const b of document.querySelectorAll('#wing-panel button')) {
+      const pick = (e) => { e.preventDefault(); e.stopPropagation(); this.pickWing(b.dataset.wing); };
       b.addEventListener('click', pick);
       b.addEventListener('touchstart', pick, { passive: false });
     }
@@ -232,9 +238,33 @@ export class UI {
     this.show('btn-mtr', s.missileCount > 0); this.show('btn-hook', s.type !== 'heli');
   }
 
+  /** Open / close the wingman command picker. */
+  toggleWing(open = !this.wingOpen) {
+    if (open && this.game.state !== 'playing') return;
+    if (open) this.toggleAP(false);
+    this.wingOpen = open;
+    this.show('wing-panel', open);
+    if (open) {
+      if (document.exitPointerLock && this.mouse.locked) document.exitPointerLock();
+      const w = this.game.wingman, on = w.active;
+      for (const b of document.querySelectorAll('#wing-panel button')) {
+        const c = b.dataset.wing;
+        if (c === 'toggle') b.lastChild.textContent = on ? 'DISMISS WINGMAN' : 'CALL WINGMAN';
+        if (c === 'smoke') b.lastChild.textContent = w.smoke ? 'SMOKE OFF' : 'SMOKE ON';
+        b.classList.toggle('dim', !on && c !== 'toggle' && c !== 'close');
+      }
+    }
+  }
+
+  pickWing(cmd) {
+    this.toggleWing(false);
+    if (cmd !== 'close') this.game.wingman.command(cmd);
+  }
+
   /** Open / close the autopilot mode picker. */
   toggleAP(open = !this.apOpen) {
     if (open && this.game.state !== 'playing') return;
+    if (open) this.toggleWing(false);
     this.apOpen = open;
     this.show('ap-panel', open);
     if (open) {
@@ -252,7 +282,7 @@ export class UI {
   }
 
   setFlightUi(on) {
-    if (!on) this.toggleAP(false);
+    if (!on) { this.toggleAP(false); this.toggleWing(false); }
     this.touchActive = on && this.isTouch;
     this.show('touch-ui', this.touchActive);
     this.show('btn-pause', on);
@@ -320,6 +350,13 @@ export class UI {
         this.keys[e.code] = false;
         return;
       }
+      // wingman picker open: 1-7 give an order, 0 closes
+      if (this.wingOpen && /^(Digit|Numpad)[0-7]$/.test(e.code)) {
+        const n = +e.code.slice(-1);
+        this.pickWing(n === 0 ? 'close' : WING_CMDS[n - 1]);
+        this.keys[e.code] = false;
+        return;
+      }
       switch (e.code) {
         case 'KeyV': g.cycleView(); break;
         case 'KeyI': g.toggleHud(); break;
@@ -333,6 +370,7 @@ export class UI {
         case 'KeyK': g.toggleHook(); break;
         case 'KeyU': g.toggleMotors(); break;
         case 'KeyO': this.toggleAP(); break;
+        case 'KeyY': this.toggleWing(); break;
         case 'Space': e.preventDefault(); break;
         default:
       }
@@ -474,6 +512,7 @@ export class UI {
     tap('btn-hook', () => game.toggleHook());
     tap('btn-mtr', () => game.toggleMotors());
     tap('btn-auto', () => this.toggleAP());
+    tap('btn-wing', () => this.toggleWing());
     // LATCH: tap = pylon latches, hold ~1.5 s = lift the guard and override the motor burn limiter
     hold('btn-latch', (v) => { if (v) game.latchPress(); else game.latchRelease(); });
     window.addEventListener('resize', () => { if (sid === null) home(); this.paintThrottle(); });

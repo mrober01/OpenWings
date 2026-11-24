@@ -25,6 +25,7 @@ export class CameraRig {
     this.flyAim = new THREE.Vector3();
     this.fov = BASE_FOV;
     this.zoom = 1;              // external-view distance multiplier (mouse wheel)
+    this.glance = null;         // { yaw, pitch }: cockpit head turns here instead of springing back (wingman show)
   }
 
   /** Mouse wheel: >0 pulls the camera back. Chase, orbit and padlock only. */
@@ -69,8 +70,11 @@ export class CameraRig {
     // head / look-around springs back after a moment without input
     this.lookIdle += dt;
     if (this.lookIdle > 1.2) {
-      const k = Math.exp(-4 * dt);
-      this.lookYaw *= k; this.lookPitch *= k;
+      const k = Math.exp(-4 * dt), gl = view === 'cockpit' ? this.glance : null;
+      if (gl) {
+        const kk = Math.exp(-3 * dt);
+        this.lookYaw = gl.yaw + (this.lookYaw - gl.yaw) * kk; this.lookPitch = gl.pitch + (this.lookPitch - gl.pitch) * kk;
+      } else { this.lookYaw *= k; this.lookPitch *= k; }
     }
 
     _f.set(0, 0, -1).applyQuaternion(q);

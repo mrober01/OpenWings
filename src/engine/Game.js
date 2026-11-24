@@ -20,6 +20,7 @@ import { Ejection } from './Ejection.js';
 import { WIRES, LANE, DECK_Y, PARKED } from '../world/Carrier.js';
 import { AB_DETENT } from './FlightModel.js';
 import { Autopilot, AP_LABELS } from './Autopilot.js';
+import { Wingman } from './Wingman.js';
 
 // hung-missile "hack": a motor fired with the pylon latches locked stays on the rail and pushes
 // stock: a short kick. 'extended' (burn limiter overridden in flight — hold LATCH): the motor runs its whole
@@ -40,7 +41,7 @@ const G = 9.81, TAU = Math.PI * 2;
 const GUN_RANGE = 1500;
 const _f = new THREE.Vector3(), _u = new THREE.Vector3(), _r = new THREE.Vector3();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
-const _e = new THREE.Euler();
+const _e = new THREE.Euler(), _q = new THREE.Quaternion();
 const gi = { y: 0, water: false, runway: false, slope: 0 };
 const _nearB = [];
 const _ln = { t: 0, s: 0 };
@@ -65,6 +66,7 @@ export class Game {
     this.state = 'menu';          // menu | playing | paused | ended
     this.mode = 'free'; this.mission = null; this.diff = DIFFICULTY.normal;
     this.units = []; this.player = null;
+    this.wingman = new Wingman(this);
     this.time = 0; this.score = 0; this.kills = 0; this.wave = 0;
     this.hostilesLeft = 0; this.primaryLeft = 0;
     this.waypoint = null; this.navField = null; this._ilsSgn = 1;
@@ -125,6 +127,8 @@ export class Game {
     this.cockpit.setSun(this.env.sunDir);
 
     this.mission = MISSIONS[this.mode].create(this);
+    this.wingman.reset();
+    if (s.get('wingman')) this.wingman.spawn();
     this.count();
 
     this.cam.reset();
@@ -187,6 +191,7 @@ export class Game {
     this.ensureEnv();
     for (const u of this.units) this.removeObj(u);
     this.units.length = 0; this.player = null;
+    this.wingman.reset();
     this.weapons.reset(); this.effects.clear(); this.effects.beginShadows(); this.effects.endShadows();
     this.engine.pitOn = false;
     this.clearShowcase();
@@ -594,6 +599,7 @@ export class Game {
     if (this.ejection) { PILOTLESS.throttle = p.fm.throttle; input = PILOTLESS; this.ejection.update(dt, env); }
 
     if (p.alive) this.updatePlayer(p, input, dt);
+    this.wingman.update(dt);
     this.updateAI(dt);
     this.updateGround(dt);
     this.updateWrecks(dt);
@@ -615,6 +621,7 @@ export class Game {
       const c = this.cam, k = Math.min(1, dt * 8);
       c.lookPitch += (-0.62 - c.lookPitch) * k; c.lookYaw -= c.lookYaw * k; c.lookIdle = 0;
     }
+    this.cam.glance = this.wingmanGlance(p);
     this.cam.update(dt, this.ejection || p, env, this.target);
     // cockpit view: the airframe stays visible (you see your own wings and nose from
     // inside; the fuselage around you is back-face culled), the interior is a 2nd pass
@@ -637,6 +644,20 @@ export class Game {
       if (inPit) this.cockpit.update(dt, this.hs);
       this.updateAudio(dt, input);
     }
+  }
+
+  /** Cockpit head direction toward the wingman's canopy during its show moments, else null. */
+  wingmanGlance(p) {
+    const w = this.wingman;
+    if (!w.showing || !w.active || !p.alive || this.ejection) return null;
+    const u = w.unit, e = u.spec.eye;
+    _a.set(e[0], e[1], e[2]).applyQuaternion(u.obj.quaternion).add(u.pos);
+    _b.set(p.spec.eye[0], p.spec.eye[1], p.spec.eye[2]).applyQuaternion(p.obj.quaternion).add(p.pos);
+    _a.sub(_b).applyQuaternion(_q.copy(p.obj.quaternion).invert());
+    const h = Math.hypot(_a.x, _a.z), gl = this._glance || (this._glance = { yaw: 0, pitch: 0 });
+    gl.yaw = h < 1.5 ? 0 : clamp(Math.atan2(-_a.x, -_a.z), -2.6, 2.6);
+    gl.pitch = clamp(Math.atan2(_a.y, h), -0.9, 1.4);
+    return gl;
   }
 
   end() {
@@ -942,7 +963,7 @@ export class Game {
     const env = this.env, w = this.weapons;
     for (let i = 0; i < this.units.length; i++) {
       const u = this.units[i];
-      if (!u.alive || u.kind !== 'air' || u.isPlayer) continue;
+      if (!u.alive || u.kind !== 'air' || u.isPlayer || u.wingman) continue;
       const ai = u.ai;
       u.retarget -= dt;
       if (u.target && !u.target.alive) { u.target = null; u.retarget = 0; }
@@ -982,7 +1003,7 @@ export class Game {
   pickEnemy(u, maxR) {
     let best = null, bd = maxR;
     for (const t of this.units) {
-      if (!t.alive || t.kind !== 'air' || t.team === u.team) continue;
+      if (!t.alive || t.kind !== 'air' || t.team === u.team || t.wingman) continue;
       if (t.team === 0 && !t.isPlayer && t.score === 0 && t.ai && t.ai.role === 'drone') continue; // leave civilians alone
       let d = t.pos.distanceTo(u.pos);
       if (t.isPlayer) d *= 0.6;
@@ -1014,7 +1035,7 @@ export class Game {
     u.turretCd = period * (0.7 + Math.random() * 0.6) / (0.6 + this.diff.skill * 0.7);
     let best = null, bd = range;
     for (const t of this.units) {
-      if (!t.alive || t.kind !== 'air' || t.team === u.team) continue;
+      if (!t.alive || t.kind !== 'air' || t.team === u.team || t.wingman) continue;
       const d = t.pos.distanceTo(u.pos);
       if (d < bd) { bd = d; best = t; }
     }
@@ -1069,7 +1090,7 @@ export class Game {
         u.cd = 1.5;
         let best = null, bd = 7500;
         for (const t of this.units) {
-          if (!t.alive || t.kind !== 'air' || t.team === u.team) continue;
+          if (!t.alive || t.kind !== 'air' || t.team === u.team || t.wingman) continue;
           const d = t.pos.distanceTo(u.pos);
           if (d < bd && d > 1200 && t.pos.y - u.pos.y > 120) { bd = d; best = t; }
         }
@@ -1114,7 +1135,7 @@ export class Game {
   }
 
   damage(u, dmg, shooter) {
-    if (!u.alive) return;
+    if (!u.alive || u.wingman) return;   // the wingman is for show: never shot down
     if (u.isPlayer) dmg *= this.diff.dmg;
     u.hp -= dmg;
     if (shooter) { u.lastHitBy = shooter; u.lastHitT = this.time; }

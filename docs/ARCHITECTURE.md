@@ -42,6 +42,10 @@ src/engine/Post.js           MED/HIGH: HDR target, bloom pyramid, grade/vignette
 src/engine/FlightModel.js    physics (planes + helicopter)
 src/engine/AIPilot.js        autopilot producing stick inputs for AI aircraft; exports steerToward() (shared steering)
 src/engine/Autopilot.js      the player's autopilot modes (take off, land, space, landmark, target, hold)
+src/engine/Wingman.js        friendly wingman: kinematic, tracks a formation slot fixed in the player's frame (braking-curve
+                             join-up, critically damped close in, loosens when the player pulls hard) + keyframed stunts
+                             (close in & wave, inverted overhead, barrel roll around you, victory roll, smoke); its
+                             show windows turn the cockpit head (CameraRig.glance)
 src/engine/Entities.js       "units": aircraft (mesh+FlightModel+AIPilot) and ground targets
 src/engine/Weapons.js        pooled tracers, missiles, flares
 src/engine/Ejection.js       ejection seat / bail-out + parachute (doubles as a camera unit)

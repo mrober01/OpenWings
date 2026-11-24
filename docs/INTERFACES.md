@@ -30,6 +30,8 @@ Everything that can be shot at or shown on radar.
   obj: THREE.Object3D | null,
   spec, fm, ai,              // aircraft only (AircraftSpecs entry, FlightModel, AIPilot)
   isPlayer: false,
+  wingman: true,              // the player's wingman (engine/Wingman.js): kinematic, no AIPilot (ai = null),
+                              //   never damaged and never picked as a target by enemies / AAA
   hung: [{ t, side, trail }],  // player only: missile motors burning on locked pylon latches (Game.hangFire)
 }
 ```

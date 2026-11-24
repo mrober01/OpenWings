@@ -15,13 +15,14 @@ export const OPTIONS = {
   tilt: { label: 'TILT TO FLY', values: [false, true], names: ['OFF', 'ON'] },
   sound: { label: 'SOUND', values: [1, 0.5, 0], names: ['ON', 'QUIET', 'OFF'] },
   haptics: { label: 'VIBRATION', values: [true, false], names: ['ON', 'OFF'] },
+  wingman: { label: 'WINGMAN', values: [false, true], names: ['OFF', 'ON · FLIES FORMATION'] },
   units: { label: 'HUD', values: ['full', 'lite'], names: ['FULL', 'DECLUTTERED'] },
 };
 
 const DEFAULTS = {
   aircraft: 'ef2000', mission: 'free', map: 'nordic', start: 'valhall',
   tod: 'day', difficulty: 'normal', assist: true, quality: 'auto',
-  sensitivity: 1, invertY: false, tilt: false, sound: 1, haptics: true, units: 'full',
+  sensitivity: 1, invertY: false, tilt: false, sound: 1, haptics: true, units: 'full', wingman: false,
   best: {},
 };
 

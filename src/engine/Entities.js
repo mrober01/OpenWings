@@ -14,7 +14,7 @@ const gi = { y: 0, water: false, runway: false, slope: 0 };
 export function makeAircraft(key, team, opts = {}) {
   const spec = AIRCRAFT_SPECS[key];
   if (!spec) throw new Error('unknown aircraft ' + key);
-  const obj = buildAircraft(key, { team, lod: opts.player ? 'full' : 'low' });
+  const obj = buildAircraft(key, { team, lod: opts.lod || (opts.player ? 'full' : 'low') });
   const fm = new FlightModel(spec, { assist: opts.assist !== false });
   const ud = obj.userData;
   const big = spec.gMax < 3;

@@ -837,13 +837,14 @@ function airframe(key, def, team, full) {
     wing(out, { r: [p.x, p.wy - 0.02, p.z - L * 0.5, L], t: [p.x, p.y + 0.12, p.z - L * 0.45, L * 0.85], th: 0.12 }, 0x5a5e62, 0x5a5e62, 1, null);
   }
   const skin = toMesh(out, null).geometry;
-  let glass = null, pilot = null;
+  let glass = null, pilot = null, pilotAt = null;
   if (def.canopy) { const o = { pos: [], nor: [], col: [] }; loft(o, def.canopy, 0xffffff, 0xffffff, 14, 1); glass = toMesh(o, null).geometry; }
   if (def.canopy && !def.noPilot) {
     // pilot: helmet + visor + headrest under the biggest canopy section (hidden with the glass in cockpit view)
     let im = 0; def.canopy.forEach((c, i) => { if (c[2] > def.canopy[im][2]) im = i; });
     const [cz, , ch, cy, cx = 0] = def.canopy[im];
     const hy = cy + ch * 0.25 - 0.06, hz = cz + 0.3, R = 0.15;
+    pilotAt = [cx, hy, hz];   // helmet centre (unscaled airframe coords): the wingman's waving arm hangs off this
     const o = { pos: [], nor: [], col: [] };
     const helmet = team === 1 ? 0x4c5444 : (spec.type === 'prop' ? 0x5a4a3a : 0xd6d8d0);
     loft(o, blob(hz, R, R * 1.08, R * 1.12, hy, cx), helmet, helmet, 10, 1);
@@ -858,7 +859,7 @@ function airframe(key, def, team, full) {
     decals.setAttribute('position', new THREE.Float32BufferAttribute(dc.pos, 3)); decals.setAttribute('normal', new THREE.Float32BufferAttribute(dc.nor, 3));
     decals.setAttribute('uv', new THREE.Float32BufferAttribute(dc.uv, 2)); decals.computeBoundingSphere();
   }
-  g = { skin, glass, pilot, movers, stores: st, decals };
+  g = { skin, glass, pilot, pilotAt, movers, stores: st, decals };
   cache.set(id, g);
   return g;
 }
@@ -882,7 +883,7 @@ export function buildAircraft(key, opts = {}) {
     g.userData.glass.renderOrder = 1;
     inner.add(g.userData.glass);
     // the pilot rides with the glass so the cockpit view hides both
-    if (geo.pilot) g.userData.glass.add(new THREE.Mesh(geo.pilot, r.skin));
+    if (geo.pilot) { g.userData.glass.add(new THREE.Mesh(geo.pilot, r.skin)); g.userData.pilotAt = geo.pilotAt; }
   }
   if (geo.decals) inner.add(new THREE.Mesh(geo.decals, r.decal));
   const missiles = geo.stores.map(p => {
