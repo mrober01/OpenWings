@@ -22,9 +22,11 @@ initApp();
  *  the game in the real browser: an Android intent link to Chrome, plus the menu route for iPhone. */
 function initInApp() {
   const ua = navigator.userAgent || '';
-  const fb = /FBAN|FBAV|FB_IAB|FBIOS/.test(ua), other = /Instagram|Messenger|Line\//.test(ua);
+  const fb = /FBAN|FBAV|FB_IAB|FBIOS/.test(ua);
+  // other apps' built-in browsers: Instagram, Messenger, LinkedIn, X/Twitter, TikTok, Snapchat, LINE, WeChat
+  const other = /Instagram|Messenger|LinkedInApp|Twitter|musical_ly|BytedanceWebview|TikTok|Snapchat|Line\/|MicroMessenger/.test(ua);
   if (!fb && !other) return;
-  const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/.test(ua);
+  const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);   // iPadOS says Macintosh
   const url = location.href.split('#')[0];
   const intent = `intent://${url.replace(/^https?:\/\//, '')}#Intent;scheme=${location.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`;
   const help = document.getElementById('inapp-help'), menuBtn = document.getElementById('btn-inapp');
@@ -109,5 +111,12 @@ async function boot() {
 boot().catch(err => {
   console.error(err);
   const msg = document.getElementById('loading-msg');
-  if (msg) msg.textContent = 'BOOT ERROR: ' + err.message;
+  if (!msg) return;
+  // no 3D graphics (WebGL off / blocked / very old device): say what to do instead of a cryptic error
+  let gl = false; try { const c = document.createElement('canvas'); gl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch { /* none */ }
+  if (!gl || /webgl/i.test(err.message || '')) {
+    msg.innerHTML = '<b>This browser has 3D graphics turned off.</b><br>In Chrome: Settings → System → turn on <i>Use graphics acceleration</i>, ' +
+      'then restart Chrome.<br>Or open the game in another browser (Chrome, Safari, Edge, Firefox).';
+    const sp = document.querySelector('#loading .spinner'); if (sp) sp.style.display = 'none';
+  } else msg.textContent = 'BOOT ERROR: ' + err.message;
 });
