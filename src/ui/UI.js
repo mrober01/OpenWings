@@ -107,6 +107,14 @@ export class UI {
     on('btn-end-restart', () => this.fly());
     on('btn-end-hangar', () => this.toMenu());
     on('btn-end-share', () => this.shareResult());
+    // Chrome's install offer (https site only, see main.js initApp): a button in the hangar instead of the mini bar
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); this._install = e; this.show('btn-install', true); });
+    window.addEventListener('appinstalled', () => { this._install = null; this.show('btn-install', false); this.toast('INSTALLED · OPEN OPENWINGS FROM THE HOME SCREEN', 'good'); });
+    on('btn-install', async () => {
+      const e = this._install; if (!e) return;
+      this._install = null; this.show('btn-install', false);
+      try { await e.prompt(); } catch { /* dismissed */ }
+    });
     on('btn-pause', () => this.pauseGame());
     // autopilot picker: click / tap a mode
     for (const b of document.querySelectorAll('#ap-panel button')) {
@@ -204,6 +212,7 @@ export class UI {
     this.goImmersive();
     if (this.isTouch && this.settings.get('tilt')) this.initTilt();
     this.calibrateTilt();
+    this.checkTilt();
     this._menuUp = false;
     clearTimeout(this._backdropT); this._backdropT = null; this.setMapBusy(false);
     if (!this.game.needsEnv()) { this.game.startMission(this.mission, this.aircraft); return; }
@@ -316,7 +325,7 @@ export class UI {
     if (document.exitPointerLock) document.exitPointerLock();
   }
 
-  resume() { this.show('pause', false); this.setFlightUi(true); this.calibrateTilt(); this.game.resume(); }
+  resume() { this.show('pause', false); this.setFlightUi(true); this.calibrateTilt(); this.checkTilt(); this.game.resume(); }
 
   toMenu() { this.game.toMenu(); this.showMenu(); }
 
@@ -345,11 +354,11 @@ export class UI {
     catch { this.toast('COULD NOT SHARE', 'warn'); }
   }
 
-  toast(msg, kind = '') {
+  toast(msg, kind = '', ms = 2600) {
     const t = this.$('toast');
     t.textContent = msg; t.className = 'show ' + kind;
     clearTimeout(this._toastT);
-    this._toastT = setTimeout(() => { t.className = kind; }, 2600);
+    this._toastT = setTimeout(() => { t.className = kind; }, ms);
   }
 
   damageFlash() {
@@ -565,14 +574,31 @@ export class UI {
       const roll = Math.atan2(-right, Math.hypot(up, out)), pitch = Math.atan2(out, up);
       if (t.zero == null) t.zero = pitch;
       t.roll += (clamp(roll / 0.45, -1, 1) - t.roll) * 0.35;
-      t.pitch += (clamp((pitch - t.zero) / 0.32, -1, 1) - t.pitch) * 0.35;
+      // top edge toward you = pull (nose up), like drawing a stick back; away = push. INVERT Y flips it.
+      t.pitch += (clamp((t.zero - pitch) / 0.32, -1, 1) - t.pitch) * 0.35;
       t.live = true;
     });
     try {
       const D = window.DeviceMotionEvent;
-      if (D && typeof D.requestPermission === 'function') D.requestPermission().then(r => { if (r === 'granted') start(); }).catch(() => {});
+      if (D && typeof D.requestPermission === 'function') D.requestPermission().then(r => { if (r === 'granted') start(); else this.tilt.denied = true; }).catch(() => { this.tilt.denied = true; });
       else start();
     } catch { /* no sensors */ }
+  }
+
+  /** TILT TO FLY is on but no motion data has arrived a couple of seconds into the flight: say why,
+   *  instead of the phone silently ignoring the tilt. Only when the player chose tilt. */
+  checkTilt() {
+    clearTimeout(this._tiltCheckT);
+    if (!this.isTouch || !this.settings.get('tilt')) return;
+    this._tiltCheckT = setTimeout(() => {
+      const t = this.tilt;
+      if (!this.settings.get('tilt') || !this.game.player || this.game.state !== 'playing' || (t && t.live)) return;
+      // phone browsers only hand motion sensors to https pages (a downloaded file or a http:// copy gets nothing)
+      const why = t && t.denied ? 'MOTION PERMISSION DENIED'
+        : !window.isSecureContext || location.protocol !== 'https:' ? 'NO SENSOR IN THIS COPY · USE THE ONLINE LINK'
+        : 'NO MOTION SENSOR';
+      this.toast(`TILT TO FLY: ${why} · USE THE STICK`, 'warn', 6000);
+    }, 2500);
   }
 
   calibrateTilt() { if (this.tilt) { this.tilt.zero = null; this.tilt.roll = 0; this.tilt.pitch = 0; } }

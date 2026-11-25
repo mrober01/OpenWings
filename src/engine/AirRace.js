@@ -550,8 +550,15 @@ export function airRaceMission(g) {
   /** Gate assist (arcade): when roughly lined up with the next gate, nudge the stick toward its centre.
    *  The less you move the stick yourself, the more it helps; any real input takes over. */
   const aIn = { pitch: 0, roll: 0, yaw: 0 }, aOut = {}, _w = new THREE.Vector3(), _fw = new THREE.Vector3();
-  let gcasT = 0;
+  let gcasT = 0, help = 0, helpGcas = false;
+  // what the assist is doing right now, for the HUD light: smoothed so it doesn't flicker
+  const helped = (w, gcas, dt) => { help += (w - help) * clamp((dt || 0) * 6, 0, 1); helpGcas = gcas; };
   function assist(inp, dt) {
+    const out = steer(inp, dt);
+    if (out === inp) helped(0, false, dt);
+    return out;
+  }
+  function steer(inp, dt) {
     if (!size.assist || !g.settings.get('assist') || !p.alive || spec.type === 'heli' || p.fm.onGround) return inp;   // ASSIST OFF (RAW): no help
     // Auto-GCAS (like the F-16's): about to fly into the ground or water -> roll level and pull up
     gcasT = Math.max(0, gcasT - (dt || 0));
@@ -567,6 +574,7 @@ export function airRaceMission(g) {
       if (gcasT <= 0) { g.say('AUTO-GCAS · PULL UP', 'warn'); gcasT = 4; }
       Object.assign(aOut, inp);
       aOut.pitch = Math.max(inp.pitch, aIn.pitch); aOut.roll = aIn.roll; aOut.yaw = 0;
+      helped(1, true, dt);
       return aOut;
     }
     const q = gates[next];
@@ -591,6 +599,7 @@ export function airRaceMission(g) {
     aOut.pitch = inp.pitch + (aIn.pitch - inp.pitch) * w;
     aOut.roll = inp.roll + (aIn.roll - inp.roll) * w;
     aOut.yaw = inp.yaw + (aIn.yaw - inp.yaw) * w;
+    helped(size.assist ? w / size.assist : 0, false, dt);
     return aOut;
   }
 
@@ -704,6 +713,8 @@ export function airRaceMission(g) {
     /** test / screenshot hook: make gate i the next one, clock running */
     skipTo(i) { next = clamp(i, 0, gates.length - 1); started = true; for (const q of gates) q.s = null; g.waypoint = label(); layLine(); },
     assist,
+    /** HUD light: '' (not helping), 'ASSIST' (steering you toward the gate) or 'GCAS' (pulling up) */
+    assistState: () => helpGcas && help > 0.05 ? 'GCAS' : help > 0.15 ? 'ASSIST' : '',
     update(dt) {
       if (g.state !== 'playing' || !p.alive) return;
       // the clock starts at gate 1, like a real race

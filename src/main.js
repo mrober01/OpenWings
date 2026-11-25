@@ -6,6 +6,17 @@ import { AudioEngine } from './engine/Audio.js';
 import { UI } from './ui/UI.js';
 import { startLoading, hideLoading } from './ui/loading.js';
 
+/** Installable app (Home screen): only on the https site. The app keeps a copy of the game for offline
+ *  play and, being the https site, keeps the motion sensor (TILT TO FLY), which a downloaded file never gets. */
+function initApp() {
+  if (location.protocol !== 'https:' || !('serviceWorker' in navigator)) return;
+  const link = document.createElement('link');
+  link.rel = 'manifest'; link.href = 'manifest.webmanifest';
+  document.head.appendChild(link);
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+initApp();
+
 async function boot() {
   startLoading();
   // let the loading screen paint before doing heavy work

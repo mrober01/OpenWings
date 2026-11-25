@@ -147,6 +147,7 @@ h2 { font-size: 11px; letter-spacing: 3px; color: var(--accent); opacity: 0.85; 
 }
 .big-btn:active { filter: brightness(1.25); }
 .big-btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-size: 13px; }
+#btn-install { min-width: 0; min-height: 30px; padding: 4px 12px; font-size: 11px; letter-spacing: 2px; align-self: center; margin-left: auto; color: var(--accent); border-color: var(--accent); }
 #btn-fly {
   position: fixed; z-index: 21; right: calc(16px + var(--sr)); bottom: calc(14px + var(--sb));
   box-shadow: 0 6px 26px rgba(0, 0, 0, 0.6);

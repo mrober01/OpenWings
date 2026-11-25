@@ -14,6 +14,7 @@ const GREEN_DIM = 'rgba(61,255,114,0.6)';
 const OUTLINE = 'rgba(0,16,6,0.8)';
 const BACK = 'rgba(0,12,5,0.5)';
 const AMBER = '#ffc531';
+const CYAN = '#5fd8ff';
 const RED = '#ff4d3d';
 const HOSTILE = '#ff6a50';
 const WHITE = '#eaf6ee';
@@ -1344,7 +1345,8 @@ export class Hud {
     let hack = '';
     if (s.motorsCut) hack = 'MOTORS CUT';
     else if (s.rcsOn) hack = 'RCS ' + Math.round(rcs * 100) + '%';
-    if (!ap && !hack) return;
+    const as = typeof s.assist === 'string' ? s.assist : '';
+    if (!ap && !hack && !as) return;
     this._f(this.fS);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     // left column, under the mission objective and score lines
@@ -1354,6 +1356,15 @@ export class Hud {
       ctx.fillStyle = BACK; ctx.fillRect(x - 4 * u, y - bh / 2, w, bh);
       ctx.lineWidth = 1; ctx.strokeStyle = GREEN; ctx.strokeRect(x - 4 * u + 0.5, y - bh / 2 + 0.5, w - 1, bh - 1);
       this._text(str, x + 2 * u, y + 0.5, GREEN);
+      y += bh + 2 * u;
+    }
+    if (as) {
+      // air-race gate assist / Auto-GCAS steering for you (turn off with ASSIST: OFF (RAW))
+      const str = as === 'GCAS' ? 'AUTO-GCAS' : 'GATE ASSIST', col = as === 'GCAS' ? AMBER : CYAN;
+      const w = ctx.measureText(str).width + 12 * u, bh = 17 * u;
+      ctx.fillStyle = BACK; ctx.fillRect(x - 4 * u, y - bh / 2, w, bh);
+      ctx.lineWidth = 1; ctx.strokeStyle = col; ctx.strokeRect(x - 4 * u + 0.5, y - bh / 2 + 0.5, w - 1, bh - 1);
+      this._text(str, x + 2 * u, y + 0.5, col);
       y += bh + 2 * u;
     }
     if (hack) this._text(hack, x, y, s.motorsCut ? AMBER : rcs < 0.2 && (time * 3) % 1 < 0.5 ? AMBER : GREEN);

@@ -4,3 +4,6 @@ node_modules/
 tests/tmp/
 dist/OpenWings.html
 tools/.cache/
+# build copies of public/ (only dist/index.html is kept in git)
+dist/*
+!dist/index.html

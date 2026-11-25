@@ -1431,6 +1431,7 @@ export class Game {
     o.cat = fm.cat ? (fm.cat.fired ? 2 : 1) : 0; o.arrest = !!fm.arrest;
     o.flameout = fm.flameout; o.rho = fm.rho;
     s.ap = this.ap ? this.ap.status : '';
+    s.assist = this.mission && this.mission.assistState && !this.ap && !this.ejection ? this.mission.assistState() : '';
     s.rcs = p.hasRcs ? p.rcs : -1; s.rcsOn = fm.rcs > 0; s.motorsCut = !!this.motorsCut;
     s.latch = !!this.latch; s.boost = p.hung ? p.hung.length : 0; s.override = !!this.override; s.guard = this.guard;
     s.input.pitch = input.pitch; s.input.roll = input.roll; s.input.yaw = input.yaw;

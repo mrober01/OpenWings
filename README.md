@@ -2,7 +2,11 @@
 
 **▶ Play it now: https://mrober01.github.io/OpenWings/** (phone or PC, nothing to install)
 
-**⬇ Download the game file (offline / phone copy):** [OpenWings.html](https://github.com/mrober01/OpenWings/releases/latest/download/OpenWings.html), open it in any browser
+**📲 Install it as an app (phone):** open the link in Chrome and tap **INSTALL APP** in the hangar (or ⋮ → *Install app* /
+*Add to Home screen*). It opens full-screen from the home screen, plays offline, updates itself when you're online, and
+keeps **tilt-to-fly** (phones only give the motion sensor to the https site, not to a downloaded file).
+
+**⬇ Download the game file (offline / phone copy):** [OpenWings.html](https://github.com/mrober01/OpenWings/releases/latest/download/OpenWings.html), open it in any browser (everything but tilt-to-fly)
 
 <p align="center"><img src="docs/img/phone.png" width="620" alt="OpenWings on a phone: touch stick, throttle and buttons over the HUD"></p>
 
@@ -99,8 +103,10 @@ Docs for contributors: `docs/ARCHITECTURE.md` (module map) and `docs/INTERFACES.
 | LATCH · MTR | Pylon latches (missiles stay on the rails as rocket boosters; hold = burn-limiter override) · motor cut-off / relight |
 | II | Pause |
 
-Optional **TILT TO FLY** (hangar options): lean the phone to bank, tilt it to pitch;
-it re-zeroes each time you press FLY or resume. Experimental.
+Optional **TILT TO FLY** (hangar options): lean the phone to bank; tip the top edge toward you
+to climb, away to dive (INVERT Y flips it). It re-zeroes each time you press FLY or resume.
+Phones only give the motion sensor to https pages, so tilt works from the online link, not a
+downloaded file. Experimental.
 
 ### Keyboard / mouse
 
