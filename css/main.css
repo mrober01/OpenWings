@@ -89,6 +89,11 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   color: var(--green); background: rgba(8, 20, 14, 0.38); border: 1.5px solid rgba(61, 255, 114, 0.45);
 }
 
+/* the pause symbol: two drawn bars (the ⏸ character renders differently on every phone) */
+#btn-pause { display: flex; align-items: center; justify-content: center; gap: 5px; }
+#btn-pause.hidden { display: none; }
+#btn-pause i { display: block; width: 5px; height: 16px; border-radius: 1.5px; background: currentColor; }
+
 /* ASSIST on/off, next to pause: lit = helpers on, dim = raw */
 #btn-asst {
   position: fixed; z-index: 7; top: calc(6px + var(--st)); right: calc(max(24vh, 96px) + 68px + var(--sr));

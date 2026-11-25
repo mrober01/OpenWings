@@ -101,7 +101,7 @@ Docs for contributors: `docs/ARCHITECTURE.md` (module map) and `docs/INTERFACES.
 | WING | Wingman menu: call / dismiss · swap side · close in & wave · inverted overhead · barrel roll around you · victory roll · smoke |
 | HOOK | Tail hook for carrier landings |
 | LATCH · MTR | Pylon latches (missiles stay on the rails as rocket boosters; hold = burn-limiter override) · motor cut-off / relight |
-| II | Pause |
+| ⏸ (top right) | Pause |
 
 Optional **TILT TO FLY** (hangar options): lean the phone to bank; tip the top edge toward you
 to climb, away to dive (INVERT Y flips it). It re-zeroes each time you press FLY or resume.

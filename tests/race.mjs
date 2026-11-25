@@ -116,7 +116,8 @@ const FLY = `(async () => { const process_trace = ${args.includes('--trace')};
     // level the wings right at a blue gate, knife-edge at a red one
     if (d < m.size.V * 0.3 && (q.x - pos.x) * q.nx + (q.z - pos.z) * q.nz > 0) {
       const r = new V3(1,0,0).applyQuaternion(p.obj.quaternion), bank = Math.asin(Math.max(-1, Math.min(1, r.y)));
-      const goal = q.kind === 'knife' ? (bank >= 0 ? 1.3 : -1.3) : 0;
+      if (q.kind === 'knife' && q.side == null) q.side = bank >= 0 ? 1 : -1;   // pick a side once (per frame it dithers)
+      const goal = q.kind === 'knife' ? q.side * 1.3 : 0;
       inp.roll = Math.max(-1, Math.min(1, (bank - goal) * -3 / p.spec.rollRate));
     }
     inp.throttle = Math.max(0, Math.min(1, 0.55 + (m.size.V - p.fm.speed) * 0.05)); inp.brake = p.fm.speed > m.size.V * 1.1;
