@@ -130,7 +130,7 @@ X flares, Y target, bumpers throttle, LT brake, Back/Select cycles the autopilot
 ## Flying tips
 
 - Take-off: full throttle, pull gently at ~140 kt (the HUD speed tape is in knots). Gear up with GEAR.
-- With **ASSIST ON** the jet holds its flight path when you let go of the stick and will not stall.
+- With **ASSIST ON** the jet holds its flight path when you let go of the stick and will not stall. Switch it in the hangar options or from the pause menu mid-flight.
 - Fight at corner speed (~300–400 kt in the fighters); pulling hard bleeds energy fast.
 - Missile warning tone? Break hard across the missile and pump flares.
 - Landing: gear down, follow the ILS bars to the runway, ~150 kt over the threshold, throttle to idle (auto-brakes).

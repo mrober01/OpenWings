@@ -102,6 +102,12 @@ export class UI {
     const on = (id, fn) => this.$(id).addEventListener('click', () => { this.audio.unlock(); this.audio.play('click'); fn(); });
     on('btn-fly', () => this.fly());
     on('btn-resume', () => this.resume());
+    // ASSIST in flight (pause menu): the flight-model helpers plus, in the air race, gate assist and Auto-GCAS
+    on('btn-assist', () => {
+      this.settings.cycle('assist');
+      const p = this.game.player; if (p) p.fm.assist = !!this.settings.get('assist');
+      this.paintAssistBtn(); if (this.optPaint.assist) this.optPaint.assist();
+    });
     on('btn-restart', () => this.fly());
     on('btn-hangar', () => this.toMenu());
     on('btn-end-restart', () => this.fly());
@@ -321,9 +327,12 @@ export class UI {
     g.pause();
     this.setFlightUi(false);
     this.$('pause-stats').innerHTML = `${MISSIONS[g.mode].title}<br>SCORE <b>${g.score}</b> · KILLS <b>${g.kills}</b>` + (g.wave ? ` · WAVE <b>${g.wave}</b>` : '');
+    this.paintAssistBtn();
     this.show('pause', true);
     if (document.exitPointerLock) document.exitPointerLock();
   }
+
+  paintAssistBtn() { this.$('btn-assist').textContent = `ASSIST: ${this.optName('assist')}`; }
 
   resume() { this.show('pause', false); this.setFlightUi(true); this.calibrateTilt(); this.checkTilt(); this.game.resume(); }
 
