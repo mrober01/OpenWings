@@ -24,16 +24,29 @@ function initInApp() {
   const ua = navigator.userAgent || '';
   const fb = /FBAN|FBAV|FB_IAB|FBIOS/.test(ua), other = /Instagram|Messenger|Line\//.test(ua);
   if (!fb && !other) return;
-  const android = /Android/i.test(ua);
+  const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/.test(ua);
   const url = location.href.split('#')[0];
   const intent = `intent://${url.replace(/^https?:\/\//, '')}#Intent;scheme=${location.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`;
   const help = document.getElementById('inapp-help'), menuBtn = document.getElementById('btn-inapp');
   const why = help && help.querySelector('.inapp-why');
   if (why && !fb) why.textContent = "This app's built-in browser can't turn sideways, go full screen or use tilt-to-fly.";
+  const how = help && help.querySelector('.inapp-how');
+  if (how && ios) how.innerHTML = 'or tap <b>•••</b> → <b>Open in external browser</b>';
   for (const a of document.querySelectorAll('.inapp-open')) {
     if (android) a.href = intent;
-    else { a.textContent = a.id === 'btn-inapp' ? 'OPEN IN SAFARI · ••• → OPEN IN BROWSER' : 'COPY LINK'; a.href = '#';
-      a.addEventListener('click', (e) => { e.preventDefault(); if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {}); a.textContent = 'LINK COPIED · PASTE IN SAFARI'; }); }
+    else if (ios) {
+      // iPhone: no Chrome needed. x-safari-https:// opens Safari straight from an in-app browser (iOS 17+);
+      // the link is copied too, and if Safari did not open (older iOS) the button says to paste it there
+      a.textContent = a.id === 'btn-inapp' ? 'OPEN IN SAFARI · FULL SCREEN + TILT' : 'OPEN IN SAFARI';
+      a.href = 'x-safari-' + url;
+      a.addEventListener('click', () => {
+        if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {});
+        setTimeout(() => { if (!document.hidden) a.textContent = 'LINK COPIED · PASTE IT IN SAFARI'; }, 1500);
+      });
+    } else {
+      a.textContent = a.id === 'btn-inapp' ? 'COPY LINK · OPEN IN YOUR BROWSER' : 'COPY LINK'; a.href = '#';
+      a.addEventListener('click', (e) => { e.preventDefault(); if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {}); a.textContent = 'LINK COPIED · PASTE IN YOUR BROWSER'; });
+    }
   }
   if (help) help.classList.remove('hidden');
   if (menuBtn) menuBtn.classList.remove('hidden');
