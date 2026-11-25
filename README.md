@@ -106,7 +106,7 @@ Docs for contributors: `docs/ARCHITECTURE.md` (module map) and `docs/INTERFACES.
 Optional **TILT TO FLY** (hangar options): lean the phone to bank; tip the top edge toward you
 to climb, away to dive (INVERT Y flips it). It re-zeroes each time you press FLY or resume.
 Phones only give the motion sensor to https pages, so tilt works from the online link, not a
-downloaded file. Experimental.
+downloaded file.
 
 ### Keyboard / mouse
 

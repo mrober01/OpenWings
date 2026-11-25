@@ -577,7 +577,7 @@ export class UI {
   /* ================================================================ tilt-to-fly */
   // Uses gravity in the device frame, so it works however the phone is held:
   // roll = sideways lean of the screen, pitch = fore/aft tilt relative to the
-  // attitude at calibration (mission start / resume). UNTESTED on real hardware.
+  // attitude at calibration (mission start / resume). Confirmed on Android Chrome (installed app).
   initTilt() {
     if (this._tiltInit) return;
     this._tiltInit = true;

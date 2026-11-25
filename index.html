@@ -58,6 +58,7 @@
         <h1>OPEN<span>WINGS</span></h1>
         <p class="tagline">Nordic air combat · runs offline · phone &amp; desktop</p>
         <button id="btn-install" class="big-btn ghost hidden">INSTALL APP · OFFLINE + TILT</button>
+        <a id="btn-inapp" class="big-btn ghost inapp-open hidden" href="#">OPEN IN CHROME · FULL SCREEN + TILT</a>
       </header>
       <section><h2>AIRCRAFT</h2><div class="cards" id="aircraft-cards"></div></section>
       <section><h2>MISSION</h2><div class="cards" id="mission-cards"></div></section>
@@ -90,7 +91,13 @@
     </div>
   </div>
 
-  <div id="rotate-hint"><div>⟳<p>Rotate your phone to landscape</p></div></div>
+  <div id="rotate-hint"><div>⟳<p>Rotate your phone to landscape</p>
+    <!-- shown inside Facebook / Instagram / Messenger: their built-in browser stays upright (main.js initInApp) -->
+    <div id="inapp-help" class="hidden">
+      <p class="inapp-why">This is Facebook's built-in browser: it can't turn sideways, go full screen or use tilt-to-fly.</p>
+      <a class="big-btn inapp-open" href="#">OPEN IN CHROME</a>
+      <p class="inapp-how">or tap <b>⋮</b> / <b>•••</b> at the top right → <b>Open in browser</b></p>
+    </div></div></div>
   <div id="loading" class="screen hidden"><div class="spinner"></div><p id="loading-msg">Building world…</p></div>
   <div id="toast"></div>
   <!-- autopilot mode picker (AUTO button / key O; 1-6 pick a mode while it is open) -->

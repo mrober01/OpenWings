@@ -17,6 +17,29 @@ function initApp() {
 }
 initApp();
 
+/** Opened from a link inside Facebook / Instagram / Messenger: their built-in browser stays upright (so the
+ *  rotate-your-phone screen never goes away), can't go full screen and has no install / tilt. Offer to open
+ *  the game in the real browser: an Android intent link to Chrome, plus the menu route for iPhone. */
+function initInApp() {
+  const ua = navigator.userAgent || '';
+  const fb = /FBAN|FBAV|FB_IAB|FBIOS/.test(ua), other = /Instagram|Messenger|Line\//.test(ua);
+  if (!fb && !other) return;
+  const android = /Android/i.test(ua);
+  const url = location.href.split('#')[0];
+  const intent = `intent://${url.replace(/^https?:\/\//, '')}#Intent;scheme=${location.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`;
+  const help = document.getElementById('inapp-help'), menuBtn = document.getElementById('btn-inapp');
+  const why = help && help.querySelector('.inapp-why');
+  if (why && !fb) why.textContent = "This app's built-in browser can't turn sideways, go full screen or use tilt-to-fly.";
+  for (const a of document.querySelectorAll('.inapp-open')) {
+    if (android) a.href = intent;
+    else { a.textContent = a.id === 'btn-inapp' ? 'OPEN IN SAFARI · ••• → OPEN IN BROWSER' : 'COPY LINK'; a.href = '#';
+      a.addEventListener('click', (e) => { e.preventDefault(); if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {}); a.textContent = 'LINK COPIED · PASTE IN SAFARI'; }); }
+  }
+  if (help) help.classList.remove('hidden');
+  if (menuBtn) menuBtn.classList.remove('hidden');
+}
+initInApp();
+
 async function boot() {
   startLoading();
   // let the loading screen paint before doing heavy work
