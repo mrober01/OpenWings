@@ -10,7 +10,7 @@ import { Effects } from './Effects.js';
 import { makeAircraft, makeGround, wreckGround } from './Entities.js';
 import { buildAircraft } from '../aircraft/AircraftFactory.js';
 import { AIRCRAFT_SPECS } from '../aircraft/AircraftSpecs.js';
-import { MISSIONS, DIFFICULTY } from './Missions.js';
+import { MISSIONS, DIFFICULTY, bestKey } from './Missions.js';
 import { CameraRig, VIEW_NAMES } from './CameraRig.js';
 import { Hud } from '../ui/Hud.js';
 import { Cockpit } from '../aircraft/Cockpit.js';
@@ -94,6 +94,8 @@ export class Game {
     this.mode = MISSIONS[mode] ? mode : 'free';
     this.diff = DIFFICULTY[s.get('difficulty')] || DIFFICULTY.normal;
 
+    if (this.mission && this.mission.dispose) this.mission.dispose();
+    this.mission = null;
     this.ensureEnv();
     this.clearShowcase();
     this.env.resetBuildings();
@@ -234,6 +236,9 @@ export class Game {
 
   toMenu() {
     this.state = 'menu';
+    // missions that add their own scenery (the air-race course) take it away again
+    if (this.mission && this.mission.dispose) this.mission.dispose();
+    this.mission = null;
     this.clearEjection();
     this.audio.stopFlight();
     this.hud.clear();
@@ -594,6 +599,8 @@ export class Game {
     let input = NEUTRAL;
     if (this.state === 'playing' && this.ui) input = this.ui.getInput();
     else NEUTRAL.throttle = p.fm.throttle;
+    // arcade gate assist (air race): blends a nudge toward the next gate into the pilot's stick
+    if (this.mission && this.mission.assist && this.state === 'playing' && p.alive && !this.ejection && !this.ap) input = this.mission.assist(input, dt);
     if (this.autopilot && p.alive && this.state === 'playing') input = this.autoInput(dt);
     else if (this.ap && p.alive && this.state === 'playing' && !this.ejection) input = this.apInput(input, dt);
     if (this.ejection) { PILOTLESS.throttle = p.fm.throttle; input = PILOTLESS; this.ejection.update(dt, env); }
@@ -664,8 +671,9 @@ export class Game {
     const r = this.result;
     this.state = 'ended';
     r.score = this.score; r.kills = this.kills; r.wave = this.wave;
-    r.newBest = this.score > 0 && this.settings.submitScore(this.mode, this.score);
-    r.best = this.settings.best(this.mode);
+    const bk = bestKey(this.mode, this.settings.get('map'), this.player.key);
+    r.newBest = this.score > 0 && this.settings.submitScore(bk, this.score);
+    r.best = this.settings.best(bk);
     this.audio.stopFlight();
     this.hud.clear();
     this.cam.setView('orbit'); this.cam.auto = true;
@@ -1111,6 +1119,7 @@ export class Game {
   onHit(unit, dmg, team, pos, byMissile, shooter) {
     if (!unit.alive) return;
     if (shooter === this.player && unit.team === 1) this.audio.play('hitmark');
+    if (unit.onHitAt) { unit.onHitAt(this, pos, byMissile, shooter); return; }   // e.g. bullseye panels score by ring
     this.damage(unit, dmg, shooter);
   }
 
@@ -1156,6 +1165,7 @@ export class Game {
   kill(u, shooter, crashed) {
     if (!u.alive) return;
     u.alive = false;
+    u.killedBy = shooter || null;
     if (u.kind === 'air') {
       u.fm.destroyed = true;
       this.effects.explosion(u.pos, crashed ? 2.2 : 1.6, crashed ? null : u.vel);
@@ -1167,6 +1177,8 @@ export class Game {
         if (this.cam.view === 'cockpit') this.cam.setView('chase');
         this.finish(false, 'SHOT DOWN');
       }
+    } else if (u.onKill) {
+      u.onKill(this);          // custom range targets (balloons pop instead of burning)
     } else {
       wreckGround(u);
       this.effects.explosion(u.pos, 2.4);
@@ -1174,7 +1186,7 @@ export class Game {
     }
     if (shooter === this.player && u.team === 1 && !this.result) {
       this.kills++;
-      this.addScore(u.score * this.diff.score, `${u.name} DESTROYED`);
+      this.addScore(u.score * this.diff.score, u.killLabel || `${u.name} DESTROYED`);
     }
     if (this.target === u) { this.target = null; this.lock = 0; }
   }

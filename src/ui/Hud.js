@@ -728,17 +728,62 @@ export class Hud {
     }
   }
 
+  /** Arrow on an ellipse near the screen edge toward the last projected point (vx, vy); returns its spot. */
+  _edgeArrow(color) {
+    const ctx = this.ctx, g = this.g, u = this.u, W = this.w, H = this.h;
+    const pe = this._pe;
+    let dx = pe[0] * this.vx * W, dy = -pe[5] * this.vy * H;
+    let l = Math.hypot(dx, dy);
+    if (!(l > 1e-6)) { dx = 0; dy = 1; l = 1; }
+    dx /= l; dy /= l;
+    const ea = W / 2 - 34 * u, eb = H / 2 - 34 * u;
+    const k = 1 / Math.sqrt((dx * dx) / (ea * ea) + (dy * dy) / (eb * eb));
+    let ax = this.cx + dx * k, ay = this.cy + dy * k;
+    if (this.touch) {
+      if (ax < this.stickX + 16 * u && ay > this.stickY - 16 * u) ay = this.stickY - 16 * u;
+      if (ax > this.btnX - 16 * u && ay > this.btnY - 16 * u) ay = this.btnY - 16 * u;
+    }
+    const a = 12 * g, b = 7 * g;
+    ctx.beginPath();
+    ctx.moveTo(ax + dx * a, ay + dy * a);
+    ctx.lineTo(ax - dx * a * 0.6 - dy * b, ay - dy * a * 0.6 + dx * b);
+    ctx.lineTo(ax - dx * a * 0.6 + dy * b, ay - dy * a * 0.6 - dx * b);
+    ctx.closePath();
+    ctx.fillStyle = color; ctx.fill();
+    this._st(color, 1.5);
+    return { dx, dy, ax, ay };
+  }
+
   /* ------------------------------------------------------------------ waypoint */
 
   _waypoint(wpt, own) {
     const p = wpt.pos;
-    if (!this._projPt(p.x, p.y, p.z) || !this._onScreen(10)) return;
+    if (!this._projPt(p.x, p.y, p.z) || !this._onScreen(10)) {
+      // off-screen: an edge arrow pointing to it (air race gates)
+      if (!wpt.edge || !own.pos) return;
+      const { dx, dy, ax, ay } = this._edgeArrow(GREEN);
+      const ctx = this.ctx, u = this.u;
+      this._f(this.fS);
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = dx > 0.5 ? 'right' : dx < -0.5 ? 'left' : 'center';
+      const lx = ax - dx * 24 * u, ly = ay - dy * 26 * u;
+      if (typeof wpt.label === 'string') this._text(wpt.label, lx, ly - 7 * u, GREEN);
+      this._text(sRange(this.kWpt, Math.hypot(p.x - own.pos.x, p.y - own.pos.y, p.z - own.pos.z)), lx, ly + 7 * u, GREEN);
+      return;
+    }
     const ctx = this.ctx, g = this.g, u = this.u, x = this.sx, y = this.sy, r = 7 * g;
     ctx.beginPath();
     ctx.moveTo(x, y); ctx.lineTo(x - r, y - r * 1.6); ctx.lineTo(x + r, y - r * 1.6); ctx.closePath();
     this._st(GREEN, 1.5);
     this._f(this.fS);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (wpt.edge) {
+      // race gates: name and range under the marker, clear of target labels (drawn above their boxes)
+      let by = y + 10 * u;
+      if (typeof wpt.label === 'string') { this._text(wpt.label, x, by, GREEN); by += 13 * u; }
+      if (own.pos) this._text(sRange(this.kWpt, Math.hypot(p.x - own.pos.x, p.y - own.pos.y, p.z - own.pos.z)), x, by, GREEN);
+      return;
+    }
     let ty = y - r * 1.6 - 8 * u;
     if (own.pos) {
       const d = Math.hypot(p.x - own.pos.x, p.y - own.pos.y, p.z - own.pos.z);
@@ -825,26 +870,7 @@ export class Hud {
       }
     } else {
       // off-screen: arrow on an ellipse near the screen edge
-      const pe = this._pe;
-      let dx = pe[0] * this.vx * W, dy = -pe[5] * this.vy * H;
-      let l = Math.hypot(dx, dy);
-      if (!(l > 1e-6)) { dx = 0; dy = 1; l = 1; }
-      dx /= l; dy /= l;
-      const ea = W / 2 - 34 * u, eb = H / 2 - 34 * u;
-      const k = 1 / Math.sqrt((dx * dx) / (ea * ea) + (dy * dy) / (eb * eb));
-      let ax = this.cx + dx * k, ay = this.cy + dy * k;
-      if (this.touch) {
-        if (ax < this.stickX + 16 * u && ay > this.stickY - 16 * u) ay = this.stickY - 16 * u;
-        if (ax > this.btnX - 16 * u && ay > this.btnY - 16 * u) ay = this.btnY - 16 * u;
-      }
-      const a = 12 * g, b = 7 * g;
-      ctx.beginPath();
-      ctx.moveTo(ax + dx * a, ay + dy * a);
-      ctx.lineTo(ax - dx * a * 0.6 - dy * b, ay - dy * a * 0.6 + dx * b);
-      ctx.lineTo(ax - dx * a * 0.6 + dy * b, ay - dy * a * 0.6 - dx * b);
-      ctx.closePath();
-      ctx.fillStyle = hostile ? HOSTILE : GREEN; ctx.fill();
-      this._st(hostile ? HOSTILE : GREEN, 1.5);
+      const { dx, dy, ax, ay } = this._edgeArrow(hostile ? HOSTILE : GREEN);
       this._f(this.fS);
       ctx.textBaseline = 'middle';
       // label on the inner side of the arrow

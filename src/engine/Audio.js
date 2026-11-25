@@ -583,6 +583,12 @@ const SHOTS = {
     a._noise(t + 0.05, 0.55, 0.25, 'highpass', 3000, 3000, 0.7, 0.01);    // debris
     a._tone(t, 0.35, 0.3, 'square', 140, 48, 0.004);
   },
+  gate(a, t) {          // air race: gate passed
+    a._beep(t, 0.08, 0.13, 'sine', 880);
+    a._beep(t + 0.07, 0.14, 0.13, 'sine', 1320);
+  },
+  count(a, t) { a._beep(t, 0.16, 0.15, 'square', 660); },
+  go(a, t) { a._beep(t, 0.4, 0.17, 'square', 1320); },
   click(a, t) {
     a._tone(t, 0.04, 0.13, 'sine', 1400, 1000, 0.003);
   },

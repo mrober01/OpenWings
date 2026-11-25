@@ -3,7 +3,10 @@
 // The in-flight symbology is NOT here — that is the canvas HUD (ui/Hud.js).
 import { clamp } from '../engine/utils.js';
 import { AIRCRAFT_SPECS, PLAYABLE } from '../aircraft/AircraftSpecs.js';
-import { MISSIONS, MISSION_ORDER, missionBlurb } from '../engine/Missions.js';
+import { MISSIONS, MISSION_ORDER, missionBlurb, bestKey } from '../engine/Missions.js';
+import { loadRun } from '../engine/AirRace.js';
+
+const SHARE_URL = 'https://mrober01.github.io/OpenWings/';
 import { getMap } from '../world/Maps.js';
 import { MAP_THUMBS } from './mapThumbs.js';
 import { OPTIONS } from '../engine/Settings.js';
@@ -103,6 +106,7 @@ export class UI {
     on('btn-hangar', () => this.toMenu());
     on('btn-end-restart', () => this.fly());
     on('btn-end-hangar', () => this.toMenu());
+    on('btn-end-share', () => this.shareResult());
     on('btn-pause', () => this.pauseGame());
     // autopilot picker: click / tap a mode
     for (const b of document.querySelectorAll('#ap-panel button')) {
@@ -122,6 +126,7 @@ export class UI {
     this.aircraft = key; this.settings.set('aircraft', key);
     for (const [k, c] of Object.entries(this.aircraftCards)) c.classList.toggle('selected', k === key);
     if (this.game.state === 'menu' && this._menuUp) this.game.showcase(key);
+    this.refreshBest();   // the air race keeps a best per aircraft
   }
 
   selectMission(key) {
@@ -146,8 +151,16 @@ export class UI {
 
   refreshBest() {
     for (const el of document.querySelectorAll('[data-best]')) {
-      const b = this.settings.best(el.dataset.best);
+      const b = this.settings.best(bestKey(el.dataset.best, this.settings.get('map'), this.aircraft));
       el.textContent = b ? `BEST ${b}` : '';
+      if (el.dataset.best === 'race') {
+        // the air race: best time and medal for this map + aircraft + difficulty
+        const run = loadRun(`${this.settings.get('map')}:${this.aircraft}:${this.settings.get('difficulty')}`);
+        if (run && run.total) {
+          const d = Math.round(run.total * 10), tm = `${Math.floor(d / 600)}:${((d % 600) / 10).toFixed(1).padStart(4, '0')}`;
+          el.textContent = `BEST ${tm}${run.medal ? ' · ' + run.medal : ''}${b ? ` · ${b} PTS` : ''}`;
+        }
+      }
     }
   }
 
@@ -316,7 +329,20 @@ export class UI {
       (r.detail ? `<p>${r.detail}</p>` : '') +
       `SCORE <b>${r.score}</b> · KILLS <b>${r.kills}</b>` + (r.wave ? ` · WAVE <b>${r.wave}</b>` : '') +
       `<br>${r.newBest ? '<span class="newbest">★ NEW BEST ★</span>' : r.best ? `BEST <b>${r.best}</b>` : ''}`;
+    this._share = r.share || '';
+    this.show('btn-end-share', !!this._share);
     this.show('endscreen', true);
+  }
+
+  /** Air race: share the time (phone share sheet → Facebook, messages…; else copy to the clipboard). */
+  async shareResult() {
+    const text = this._share, url = SHARE_URL;
+    if (!text) return;
+    try {
+      if (navigator.share) { await navigator.share({ title: 'OpenWings Air Race', text, url }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(`${text} ${url}`); this.toast('COPIED · PASTE IT INTO A POST', 'good'); }
+    catch { this.toast('COULD NOT SHARE', 'warn'); }
   }
 
   toast(msg, kind = '') {

@@ -21,8 +21,19 @@ no internet: everything is procedural and the whole game builds into **one HTML 
 
 - **9 flyable aircraft**: Eurofighter Typhoon, F-22, Su-35, MiG-29, A-10, Mi-24 Hind,
   Spitfire, Cessna 172, Airbus A320
-- **7 missions**: Free Flight, Dogfight, Ground Strike (AAA + SAMs), Intercept (bombers),
+- **8 missions**: Free Flight, Air Race, Dogfight, Ground Strike (AAA + SAMs), Intercept (bombers),
   Wave Assault (with a wingman), Landing Challenge (ILS, graded), Carrier Landing (catch the 3 wire) — three difficulty levels, best scores saved
+- **Air Race**: a pylon course low over every map, in any aircraft. Fly the gates in order: blue wings level, red in
+  knife-edge. Going over a gate, the wrong attitude, clipping a pylon (they rip, and it dents your aeroplane) or missing a
+  gate costs seconds. Rookie / Veteran are the arcade version: big gates ~150-200 m wide and tall, lit by a light
+  curtain, a dotted racing line, gate assist (nudges you toward the next gate when you're lined up), Auto-GCAS
+  (pulls you up before you hit the ground), soft penalties; both follow the ASSIST option (OFF = no help). Ace is
+  real race size with full penalties, no assists.
+  SHARE MY TIME at the finish (phone share sheet, or copy). 3-2-1-GO countdown, clean-gate streak multiplier,
+  split times against your best run, a ghost of your best run to race, race smoke, gold / silver / bronze against par,
+  your top 5 times per course. A gunnery range along the course: big bullseye strafing boards scored by ring, tethered
+  balloons (gold ones take a second off your time), range targets on the ground and a target drone overhead. Same map +
+  aircraft + difficulty = same course, so you can compare scores with friends
 - **Aircraft carrier** on every map: catapult launches off the bow, tail hook + four arrestor wires on the angled deck,
   bolters, ramp strikes, the deck crew re-spots you on the cat after a trap
 - **Wingman**: call one up and it joins on your wing and stays there through every turn and roll, even when you take off
@@ -60,6 +71,7 @@ Hold the phone in landscape. (`dist/index.html` is the same build and is kept in
 npm run dev        # vite dev server → http://localhost:5173  (hard-refresh after edits)
 npm test           # node tests: flight envelope + AI
 node tests/play.mjs    # headless Chrome: an AI pilot flies every mission, fails on errors
+node tests/race.mjs    # headless Chrome: air-race course on every map + scoring (--fly: a bot flies it)
 node tests/carrier.mjs # headless Chrome: catapult, autopilot traps / landings / take-offs / space run / attack / RCS
 node tests/shots.mjs   # headless screenshots → /tmp/ow-shots/
 ```

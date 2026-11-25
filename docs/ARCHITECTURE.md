@@ -54,12 +54,15 @@ src/engine/Effects.js        instanced particle batch + shadows (silhouettes pro
 src/engine/Audio.js          synthesised sound
 src/engine/CameraRig.js      views: chase, cockpit, target padlock, fly-by, orbit
 src/engine/Missions.js       mission definitions (use the "mission API" in Game.js) + DIFFICULTY
+src/engine/AirRace.js        AIR RACE: seeded pylon-gate course generator (map + aircraft + difficulty), pylons,
+                             gate judging (level / knife-edge / too high / pylon hit / missed), balloons + range targets + drone
 src/engine/Game.js           state machine + per-frame orchestration
 src/engine/Settings.js       persisted options + best scores (localStorage)
 src/ui/Hud.js                canvas HUD + radar/moving map
 src/ui/UI.js                 hangar/pause/debrief, toasts, ALL input (keys, mouse, touch, gamepad)
 tests/flight.test.mjs, ai.test.mjs   node tests (physics envelope, AI)
 tests/play.mjs               headless Chrome: an AI pilot flies the PLAYER through every mission (--map=)
+tests/race.mjs               headless Chrome: AIR RACE course on every map/aircraft, scoring + penalties; --fly: a bot flies it
 tests/carrier.mjs            headless Chrome: carrier ops + every autopilot mode (--v for logs, --js=probe.js)
 tests/buildings.mjs          headless Chrome: buildings are solid / breakable, city restored per mission
 tests/shots.mjs              headless Chrome screenshots → /tmp/ow-shots/

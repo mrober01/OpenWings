@@ -3,6 +3,7 @@
 // Missions end by calling g.finish(won, title, detail).
 import { clamp } from './utils.js';
 import { getMap } from '../world/Maps.js';
+import { airRaceMission } from './AirRace.js';
 
 /** Mission blurbs and callouts name the current map's places. */
 const cap = (s) => s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\b(Ab|Intl)\b/g, w => w.toUpperCase());
@@ -205,6 +206,11 @@ export const MISSIONS = {
     },
   },
 
+  race: {
+    title: 'AIR RACE', blurb: (m) => `A pylon course low over the ${m.terrainWord}. Blue gates level, red knife-edge. Shoot the targets, beat the clock.`, armed: true,
+    create(g) { return airRaceMission(g); },
+  },
+
   trap: {
     title: 'CARRIER LANDING', blurb: 'Behind the boat at 1,100 ft. Gear and hook down, fly the ball, catch the 3 wire. No flare!', armed: false,
     create(g) { return trapMission(g); },
@@ -269,10 +275,15 @@ function trapMission(g) {
   };
 }
 
+/** Best-score slot: the air race keeps one per map and aircraft (each has its own course). */
+export function bestKey(mission, map, aircraft) {
+  return mission === 'race' ? `race/${map}/${aircraft}` : mission;
+}
+
 /** Mission blurb for the menu, filled in for a map key. */
 export function missionBlurb(key, mapKey) {
   const b = MISSIONS[key].blurb;
   return typeof b === 'function' ? b(getMap(mapKey)) : b;
 }
 
-export const MISSION_ORDER = ['free', 'dogfight', 'strike', 'intercept', 'waves', 'landing', 'trap'];
+export const MISSION_ORDER = ['free', 'race', 'dogfight', 'strike', 'intercept', 'waves', 'landing', 'trap'];

@@ -178,7 +178,9 @@ forward view through the HUD glass clear.
 
 ## Mission API (engine/Game.js → engine/Missions.js)
 
-`MISSIONS[key].create(g)` receives the Game and returns `{ objective(), update(dt), onTouchdown?(info), timer?() }`.
+`MISSIONS[key].create(g)` receives the Game and returns `{ objective(), update(dt), onTouchdown?(info), timer?(), dispose?() }`.
+`dispose()` runs before the next mission starts (remove meshes the mission added to `g.scene` itself).
+A unit may carry `onKill(g)` (replaces the wreck/explosion, e.g. a balloon popping) and `killLabel` (the score toast).
 
 ```js
 g.env, g.player, g.units, g.diff /* DIFFICULTY entry */, g.time
@@ -212,6 +214,13 @@ FlightModel carrier state (set by Game): `hookDown` / `hookPos`, `cat = { dirX, 
 `liftoff { carrier, cat }`. Crash reason `'ship'`.
 
 Missions may implement `onTrap({ wire, speed, lat, td })`, `onBolter()`, `onArrested(arrest)`.
+
+AIR RACE (`engine/AirRace.js`) also exposes `course` (gates: `{ x, z, y, base, top, nx, nz, tx, tz, kind: level|knife|finish, pylons, done }`),
+`size` (`{ V, W, H, L, n, turn, bank, knife, pen, pylonDmg, balloonR, arcade }`), `targets`, `ghost`, `best` and `skipTo(i)` (tests/screenshots).
+Best runs (total, gate splits, ghost path) live in localStorage under `openwings.race.<map>:<aircraft>:<difficulty>` (newest 40 kept).
+Waypoints may set `edge: true` to get an off-screen edge arrow on the HUD.
+Missions may implement `assist(input, dt)` → input (Game applies it to the pilot's stick when no autopilot is on).
+A unit may carry `onHitAt(g, pos, byMissile, shooter)`: it takes every hit instead of `damage()` (bullseye panels score by ring).
 
 ## Autopilot (engine/Autopilot.js)
 

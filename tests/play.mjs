@@ -14,7 +14,7 @@ const useDist = args.includes('--dist');
 const wanted = args.filter(a => !a.startsWith('--'));
 const MAP = (args.find(a => a.startsWith('--map=')) || '--map=nordic').slice(6);
 const RUNS = [
-  ['free', 'ef2000', 60], ['dogfight', 'ef2000', 240], ['strike', 'a10', 200], ['intercept', 'f22', 300],
+  ['free', 'ef2000', 60], ['race', 'ef2000', 120], ['race', 'c172', 60], ['dogfight', 'ef2000', 240], ['strike', 'a10', 200], ['intercept', 'f22', 300],
   ['waves', 'su35', 240], ['landing', 'c172', 60], ['dogfight', 'spitfire', 120], ['free', 'mi24', 40],
 ];
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };

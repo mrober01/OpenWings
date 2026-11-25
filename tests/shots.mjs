@@ -17,9 +17,45 @@ const desktop = args.includes('--desktop');
 const useDist = args.includes('--dist');
 const wanted = args.filter(a => !a.startsWith('--'));
 
+/** JS that parks the race player d metres short of gate i on the racing line (negative d: past it), rolled `roll`. */
+function RACE(i, d, roll = 0) {
+  return `{ const g = __game, p = g.player, q = g.mission.course[${i} < 0 ? g.mission.course.length + ${i} : ${i}]; g.mission.skipTo(g.mission.course.indexOf(q)); const v = g.mission.size.V, h = Math.atan2(q.nx, -q.nz);
+    p.obj.position.set(q.x - q.nx * ${d}, q.y, q.z - q.nz * ${d});
+    p.obj.quaternion.setFromEuler(new (p.obj.rotation.constructor)(0, -h, ${roll}));
+    p.fm.setAirborne(p.obj, v); p.fm.velocity.set(q.nx * v, 0, q.nz * v); g.cam.reset(); }`;
+}
 /** name → { setup: JS run in the page (may be async), wait: seconds of sim time, after?: JS } */
 export const SCENARIOS = {
   menu: { menu: true, wait: 1.5 },
+  // AIR RACE: RACE(i, d) parks the player d metres short of gate i, on the racing line
+  race_start: { setup: `__shot.start('race','ef2000',{tod:'day'})`, wait: 1.5 },
+  race_gate: { setup: `__shot.start('race','ef2000',{tod:'day'}); ${RACE(1, 380)}`, wait: 0.4 },
+  race_gate_pit: { setup: `__shot.start('race','ef2000',{tod:'day',view:'cockpit'}); ${RACE(1, 300)}`, wait: 0.4 },
+  race_knife: { setup: `__shot.start('race','spitfire',{tod:'sunset'}); ${RACE(2, 160, Math.PI / 2)}`, wait: 0.4 },
+  race_balloons: { setup: `__shot.start('race','a10',{tod:'day'}); ${RACE(0, -60)}`, wait: 1.2 },
+  race_night: { setup: `__shot.start('race','f22',{tod:'night'}); ${RACE(3, 350)}`, wait: 0.4 },
+  race_paris: { setup: `__shot.start('race','ef2000',{tod:'day',map:'paris'}); ${RACE(4, 400)}`, wait: 0.4 },
+  race_rio_cessna: { setup: `__shot.start('race','c172',{tod:'dawn',map:'rio'}); ${RACE(2, 150)}`, wait: 0.4 },
+  // a stored best run whose ghost is just ahead of you, offset to the right, toward gate 2
+  race_ghost: { setup: `__shot.start('race','ef2000',{tod:'day'}); { const g = __game, m = g.mission, q = m.course[1], k = 'nordic:ef2000:normal';
+      const path = []; const h = Math.atan2(q.nx, -q.nz), qq = g.player.obj.quaternion.clone().setFromEuler(new (g.player.obj.rotation.constructor)(0, -h, 0.25));
+      for (let i = 0; i < 60; i++) { const d = 270 - i * 0.2 * 150; path.push(Math.round((q.x - q.nx * d + q.tx * 18) * 10), Math.round((q.y + 6) * 10), Math.round((q.z - q.nz * d + q.tz * 18) * 10), Math.round(qq.x * 1000), Math.round(qq.y * 1000), Math.round(qq.z * 1000), Math.round(qq.w * 1000)); }
+      localStorage.setItem('openwings.race.' + k, JSON.stringify({ total: 70, splits: [0, 9], path })); }
+      __shot.start('race','ef2000',{tod:'day'}); ${RACE(1, 300)}`, wait: 0.2 },
+  // strafing run on the first bullseye panel; the gold balloon cluster
+  race_panel: { setup: `__shot.start('race','a10',{tod:'day'}); { const g = __game, p = g.player, u = g.mission.targets.find(t => t.type === 'panel');
+      const f = g.v3(u.pos.x - u.obj.position.x, 0, 0); const h = u.obj.rotation.y, dx = Math.sin(h), dz = Math.cos(h);
+      p.obj.position.set(u.pos.x + dx * 320, u.pos.y + 45, u.pos.z + dz * 320); p.obj.lookAt(u.pos.x, u.pos.y, u.pos.z); p.obj.rotateY(Math.PI);
+      p.fm.setAirborne(p.obj, 110); g.mission.skipTo(1); g.cam.reset(); g.target = u; }`, wait: 0.4 },
+  race_gold: { setup: `__shot.start('race','ef2000',{tod:'day'}); { const g = __game, p = g.player, u = g.mission.targets.find(t => t.name === 'GOLD BALLOON');
+      p.obj.position.set(u.pos.x - 260, u.pos.y + 10, u.pos.z - 60); p.obj.lookAt(u.pos.x, u.pos.y, u.pos.z); p.obj.rotateY(Math.PI);
+      p.fm.setAirborne(p.obj, 140); g.mission.skipTo(1); g.cam.reset(); g.target = u; }`, wait: 0.4 },
+  race_line: { setup: `__shot.start('race','spitfire',{tod:'day',difficulty:'easy'}); ${RACE(2, 700)}`, wait: 0.4 },
+  // crossing the finish: the debrief with medal, stats, top 5 and SHARE
+  race_finish: { setup: `__shot.start('race','f22',{tod:'sunset'}); { const g = __game, m = g.mission, n = m.course.length - 1; m.skipTo(n);
+      for (let t = 0; t < 70; t += 1 / 30) { if (Math.round(t * 30) % 300 === 0) {} } }
+      ${RACE(-1, 60)}; for (let t = 0; t < 5; t += 1 / 30) __game.update(1 / 30)`, wait: 0.5 },
+  race_flyby: { setup: `__shot.start('race','ef2000',{tod:'day',view:'orbit'}); ${RACE(5, 60)}; __game.cam.orbitYaw = 2.2; __game.cam.orbitPitch = 0.12`, wait: 0.6 },
   runway: { setup: `__shot.start('free','ef2000',{tod:'day'})`, wait: 1.5 },
   // golden hour on the ground: Valhall lies in a mountain's shadow, so the aircraft must be shaded too
   runway_dawn: { setup: `__shot.start('free','ef2000',{tod:'dawn'})`, wait: 1.5 },
@@ -155,7 +191,7 @@ export const SCENARIOS = {
     setup: `__shot.start('free','${k}',{tod:'day',air:true,alt:500,view:'orbit'}); __game.cam.orbitYaw = 2.3; __game.cam.orbitPitch = 0.25;
       { const c = __game.cam, u = c.update.bind(c); c.update = (...a) => { u(...a); const k = __game.engine.camera; k.fov = 20; k.updateProjectionMatrix(); }; }`, wait: 1.2 }])),
   // hostile markings and the underside
-  d_hostile: { setup: `__shot.start('dogfight','ef2000',{tod:'day'}); { const g = __game, e = g.units.find(u => u.team === 1 && u.kind !== 'ground'); g.player = e; g.cam.setView('orbit'); g.cam.orbitYaw = 2.2; g.cam.orbitPitch = -0.35;
+  d_hostile: { setup: `__shot.start('dogfight','ef2000',{tod:'day'}); { const g = __game, e = g.units.find(u => u.team === 1 && u.kind !== 'ground'); e.hung = e.hung || []; g.player = e; g.cam.setView('orbit'); g.cam.orbitYaw = 2.2; g.cam.orbitPitch = -0.35;
       const c = g.cam, u = c.update.bind(c); c.update = (dt, unit, env, t) => { u(dt, e, env, t); const k = g.engine.camera; k.fov = 22; k.updateProjectionMatrix(); }; }`, wait: 0.5 },
   // model gallery: one orbit shot per aircraft
   ...Object.fromEntries(['ef2000', 'f22', 'su35', 'mig29', 'a10', 'spitfire', 'c172', 'a320', 'mi24'].map(k =>
