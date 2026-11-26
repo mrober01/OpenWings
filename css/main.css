@@ -160,6 +160,8 @@ h2 { font-size: 11px; letter-spacing: 3px; color: var(--accent); opacity: 0.85; 
 }
 .big-btn:active { filter: brightness(1.25); }
 .big-btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-size: 13px; }
+#btn-help { min-width: 0; min-height: 30px; padding: 4px 12px; font-size: 11px; letter-spacing: 2px; align-self: center; margin-left: auto; }
+#btn-install, #btn-inapp { margin-left: 0 !important; }
 #btn-install { min-width: 0; min-height: 30px; padding: 4px 12px; font-size: 11px; letter-spacing: 2px; align-self: center; margin-left: auto; color: var(--accent); border-color: var(--accent); }
 #btn-fly {
   position: fixed; z-index: 21; right: calc(16px + var(--sr)); bottom: calc(14px + var(--sb));
@@ -242,3 +244,16 @@ h2 { font-size: 11px; letter-spacing: 3px; color: var(--accent); opacity: 0.85; 
   #wing-panel { gap: 3px; padding: 7px 10px; }
   #wing-panel button { height: 29px; font-size: 12px; }
 }
+
+/* HOW TO FLY */
+#help { z-index: 30; }
+.help-dialog { width: min(94vw, 620px); text-align: left; align-items: stretch; }
+.help-dialog h1 { text-align: center; }
+.help-dialog h2 { font-size: 12px; letter-spacing: 3px; color: var(--accent); margin: 8px 0 2px; }
+.help-dialog ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.55; }
+.help-dialog li { margin: 2px 0; }
+.help-dialog b { color: var(--green, #3dff72); }
+.help-dialog .help-more { font-size: 11px; line-height: 1.55; opacity: 0.75; }
+.help-dialog summary { cursor: pointer; font-size: 12px; letter-spacing: 2px; color: var(--accent); margin-top: 6px; }
+.help-dialog .big-btn { align-self: center; margin-top: 6px; position: sticky; bottom: 0; box-shadow: 0 -10px 18px rgba(8, 14, 28, 0.95); }
+@media (max-height: 480px) { .help-dialog ul { font-size: 12px; line-height: 1.45; } .help-dialog h1 { font-size: 17px; } .help-dialog .big-btn { min-height: 40px; padding: 6px 26px; } }

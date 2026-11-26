@@ -102,6 +102,9 @@ export class UI {
     const on = (id, fn) => this.$(id).addEventListener('click', () => { this.audio.unlock(); this.audio.play('click'); fn(); });
     on('btn-fly', () => this.fly());
     on('btn-resume', () => this.resume());
+    on('btn-help', () => this.showHelp(true));
+    on('btn-help-pause', () => this.showHelp(true));
+    on('btn-help-close', () => this.showHelp(false));
     // ASSIST in flight (pause menu): the flight-model helpers plus, in the air race, gate assist and Auto-GCAS
     on('btn-assist', () => this.toggleAssist(false));
     on('btn-asst', () => { this.toggleAssist(true); this.$('btn-asst').blur(); });   // blur: SPACE (guns) must not click it again
@@ -177,8 +180,41 @@ export class UI {
 
   show(id, on) { this.$(id).classList.toggle('hidden', !on); }
 
+  /** HOW TO FLY: the basics for this device (touch or keyboard), the full control list folded away below.
+   *  Pops up by itself on the first visit (Settings helpSeen, kept in the browser), then only from its buttons. */
+  showHelp(on) {
+    if (on) {
+      const t = this.isTouch, li = (a) => `<ul>${a.map(x => `<li>${x}</li>`).join('')}</ul>`;
+      this.$('help-body').innerHTML =
+        `<h2>THE BASICS</h2>` + li(t ? [
+          '<b>Left thumb</b> flies: pull down = nose up, push up = nose down, sideways = roll',
+          '<b>Right slider</b> is the throttle (top = afterburner)',
+          'Hold <b>GUN</b> to fire · <b>TGT</b> picks a target, then <b>MSL</b> fires a missile',
+          'Drag the sky to look around · the <b>pause</b> button (top right) pauses',
+          'Or lean the phone: OPTIONS → <b>TILT TO FLY</b> (tip the top edge toward you to climb)',
+        ] : [
+          '<b>W / S</b> pitch (S = nose up) · <b>A / D</b> roll · <b>Q / E</b> rudder · or click and fly with the <b>mouse</b>',
+          '<b>Shift / Ctrl</b> throttle (<b>1-5</b> presets, 5 = afterburner)',
+          '<b>Space</b> fires the gun · <b>T</b> picks a target, <b>X</b> fires a missile',
+          '<b>V</b> changes the view · right-drag looks around · <b>Esc</b> pauses · gamepads work too',
+        ]) +
+        `<h2>START EASY</h2>` + li([
+          'Pick <b>FREE FLIGHT</b> or <b>AIR RACE</b>, ENEMY <b>ROOKIE</b>, then <b>FLY</b>',
+          `<b>${t ? 'ASST' : 'ASSIST'}</b> on (lit) keeps you from stalling and, in the air race, helps line you up with the gates${t ? '' : ' (<b>L</b> key)'}`,
+          `Rather not take off yourself? <b>${t ? 'AUTO' : 'O'}</b> → TAKE OFF, then take over`,
+        ]) +
+        `<h2>AIR RACE</h2>` + li([
+          'Fly the gates in order, against the clock: <b>blue</b> = wings level, <b>red</b> = knife-edge (tip the plane on its side)',
+          'Shoot the balloons on the way: gold ones take a second off your time · race your best run\'s ghost next time',
+        ]) +
+        `<details><summary>EVERY CONTROL ▸</summary><p class="help-more">${this.$('menu-help').innerHTML}</p></details>`;
+    } else if (!this.settings.get('helpSeen')) this.settings.set('helpSeen', true);
+    this.show('help', on);
+  }
+
   showMenu() {
     this.show('menu', true); this.show('pause', false); this.show('endscreen', false);
+    if (!this.settings.get('helpSeen') && !this._helpAuto) { this._helpAuto = true; this.showHelp(true); }
     this.setFlightUi(false);
     this.refreshBest();
     this._menuUp = true;
@@ -395,6 +431,7 @@ export class UI {
       if (e.repeat) return;
       this.keys[e.code] = true;
       const g = this.game;
+      if (e.code === 'Escape' && !this.$('help').classList.contains('hidden')) { this.showHelp(false); return; }
       if (e.code === 'Escape' || e.code === 'KeyP') { this.togglePause(); return; }
       if (e.code === 'Enter' && g.state === 'menu') { this.fly(); return; }
       if (g.state !== 'playing') return;

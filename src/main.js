@@ -78,7 +78,7 @@ async function boot() {
       settings.set('start', o.start || 'valhall');
       settings.set('map', o.map || 'nordic');
       ui.aircraft = key; ui.mission = mode;
-      ui.show('menu', false); ui.show('pause', false); ui.show('endscreen', false);
+      ui.show('menu', false); ui.show('pause', false); ui.show('endscreen', false); ui.show('help', false);   // first-visit HOW TO FLY
       ui._menuUp = false;
       game.startMission(mode, key);
       const p = game.player;

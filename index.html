@@ -57,6 +57,7 @@
       <header>
         <h1>OPEN<span>WINGS</span></h1>
         <p class="tagline">Nordic air combat · runs offline · phone &amp; desktop</p>
+        <button id="btn-help" class="big-btn ghost">? HOW TO FLY</button>
         <button id="btn-install" class="big-btn ghost hidden">INSTALL APP · OFFLINE + TILT</button>
         <a id="btn-inapp" class="big-btn ghost inapp-open hidden" href="#">OPEN IN CHROME · FULL SCREEN + TILT</a>
       </header>
@@ -75,8 +76,18 @@
       <div class="stats" id="pause-stats"></div>
       <button class="big-btn" id="btn-resume">RESUME</button>
       <button class="big-btn ghost" id="btn-assist">ASSIST: ON</button>
+      <button class="big-btn ghost" id="btn-help-pause">? HOW TO FLY</button>
       <button class="big-btn ghost" id="btn-restart">RESTART</button>
       <button class="big-btn ghost" id="btn-hangar">HANGAR</button>
+    </div>
+  </div>
+
+  <!-- ===== How to fly (hangar / pause; pops up by itself on the first visit) ===== -->
+  <div id="help" class="screen overlay hidden">
+    <div class="dialog help-dialog">
+      <h1>HOW TO FLY</h1>
+      <div id="help-body"></div>
+      <button class="big-btn" id="btn-help-close">GOT IT</button>
     </div>
   </div>
 

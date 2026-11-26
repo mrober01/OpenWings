@@ -23,6 +23,7 @@ const DEFAULTS = {
   aircraft: 'ef2000', mission: 'free', map: 'nordic', start: 'valhall',
   tod: 'day', difficulty: 'normal', assist: true, quality: 'auto',
   sensitivity: 1, invertY: false, tilt: false, sound: 1, haptics: true, units: 'full', wingman: false,
+  helpSeen: false,          // the HOW TO FLY screen pops up by itself only until it has been closed once
   best: {},
 };
 
